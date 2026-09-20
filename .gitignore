@@ -1,0 +1,53 @@
+# Gradle & Android
+*.iml
+.gradle
+.kotlin
+/local.properties
+local.properties
+.env
+debug.keystore
+/build
+app/build
+/captures
+
+# Android Studio & JetBrains IDE
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+
+# C++ / CMake / Android NDK (Artefactos temporales y de compilación)
+.cxx
+.externalNativeBuild
+app/.cxx/
+app/.externalNativeBuild/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CMakeScripts/
+*.ninja
+*.ninja_deps
+*.ninja_log
+compile_commands.json
+.clangd/
+.cache/
+
+# Rust / Cargo (Artefactos de compilación y librerías intermedias)
+target/
+rust-core/target/
+**/*.rs.bk
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.rlib
+*.so
+*.dylib
+*.dll
+*.a
+*.o
+*.obj
+

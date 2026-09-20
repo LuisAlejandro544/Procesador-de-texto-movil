@@ -1,0 +1,6 @@
+{
+  "name": "DocuSheet",
+  "description": "Procesador de textos elegante para móvil con lienzo realista de hoja de papel, gestión de documentos y formato de lectura.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
