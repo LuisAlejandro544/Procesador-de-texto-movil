@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
  * Gestiona la tabla de documentos e inicializa un documento de bienvenida
  * para que el usuario pueda escribir y probar el procesador de texto desde el primer momento.
  */
-@Database(entities = [DocumentEntity::class], version = 1, exportSchema = false)
+@Database(entities = [DocumentEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun documentDao(): DocumentDao
@@ -31,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "docusheet_database"
                 )
+                    .fallbackToDestructiveMigration()
                     .addCallback(DatabaseCallback(scope))
                     .build()
                 INSTANCE = instance
@@ -53,22 +54,27 @@ abstract class AppDatabase : RoomDatabase() {
             private suspend fun populateInitialDocument(dao: DocumentDao) {
                 val initialDocument = DocumentEntity(
                     title = "Mi Primera Hoja",
-                    content = """Bienvenido a DocuSheet, tu procesador de texto móvil diseñado para ofrecer la sensación auténtica de escribir en una hoja de papel de escritorio.
+                    content = """Bienvenido a DocuSheet, tu procesador de texto editorial para móvil con la potencia de un procesador de escritorio.
 
-Aquí puedes redactar ensayos, notas personales, cartas o borradores con total comodidad:
+# TÍTULO EDITORIAL EN DOCUSHEET
 
-• Hoja realista: Diseñada con márgenes de página, elevación tridimensional y marcas guía de esquina.
-• Regla de medidas: Inspirada en los procesadores de texto de PC.
-• Personalización completa: Elige entre papel Blanco, Marfil cálido, Cuadriculado, Rayado o Sepia.
-• Contador en tiempo real: Monitorea tus palabras y caracteres mientras escribes.
-• Guardado automático: Tu contenido se resguarda de forma segura en almacenamiento local.
+Aquí puedes redactar cartas, ensayos, contratos y borradores con herramientas profesionales de PC adaptadas para tu teléfono:
 
-¡Comienza a escribir directamente sobre esta hoja o pulsa el botón de opciones para ajustar el formato a tu gusto!""",
+• Justificado Real de Párrafos: El texto se distribuye de margen a margen con armonía tipográfica.
+• Formato Enriquecido: Ahora cuentas con **negrita**, *cursiva*, <u>subrayado formal</u> y ~~texto tachado~~.
+• Fórmulas y Citas: Notaciones con subíndices (H<sub>2</sub>O) y superíndices (X<sup>2</sup> o 1<sup>er</sup> puesto).
+• Tipografías Dinámicas: Puedes alternar entre [font:serif]Serif clásica[/font], [font:sans]Sans moderna[/font], [font:mono]Monospace de máquina[/font] o [font:cursive]Caligrafía[/font] en cualquier momento.
+• Inserción de Imágenes: Con ajuste de hoja (Layout & Wrap) centrado o a ancho completo.
+
+> "La escritura precisa sobre papel físico ahora cabe en la palma de tu mano."
+
+¡Comienza a escribir sobre la hoja o usa la barra de herramientas superior para explorar todos los formatos!""",
                     paperType = "WHITE",
                     fontStyle = "SERIF",
                     fontSize = 16,
                     lineSpacing = 1.5f,
                     marginStyle = "NORMAL",
+                    alignment = "JUSTIFY",
                     createdAt = System.currentTimeMillis(),
                     updatedAt = System.currentTimeMillis()
                 )

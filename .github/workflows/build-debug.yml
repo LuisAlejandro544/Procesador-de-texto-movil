@@ -1,0 +1,126 @@
+name: Compilar APK Debug (DocuSheet)
+
+# ==============================================================================
+# Flujo de Trabajo de GitHub Actions para DocuSheet
+#
+# Características:
+# 1. Descarga el código completo del repositorio.
+# 2. Configura dependencias nativas para C++20 (Android NDK y CMake).
+# 3. Configura el toolchain de Rust con objetivos para las 4 arquitecturas Android:
+#    - arm64-v8a (aarch64-linux-android)
+#    - armeabi-v7a (armv7-linux-androideabi)
+#    - x86 (i686-linux-android)
+#    - x86_64 (x86_64-linux-android)
+# 4. Genera una firma de depuración (debug.keystore) desde cero usando generate_debug_keystore.sh
+# 5. Compila un APK Debug SIN CACHÉ (--no-build-cache y sin acciones de caché intermedias).
+# 6. Publica el APK resultante como un artefacto descargable directamente en GitHub.
+# ==============================================================================
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-debug-apk:
+    name: Compilación APK Debug Limpia
+    runs-on: ubuntu-latest
+
+    steps:
+      # Paso 1: Descargar todo el código del repositorio
+      - name: 📥 Clonar código del repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      # Paso 2: Configurar el entorno de Java JDK (Versión 17, sin caché)
+      - name: ☕ Configurar Java JDK 17 (Sin caché)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # Paso 3: Instalar Rust y los objetivos nativos para Android
+      - name: 🦀 Instalar Rust y objetivos de arquitecturas Android
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      # Paso 4: Instalar dependencias de C++ (Android NDK y CMake)
+      - name: ⚙️ Configurar Android NDK y CMake para C++ y Rust
+        run: |
+          echo "=== Aceptando licencias del Android SDK ==="
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+          echo "=== Instalando Android NDK y CMake ==="
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358" "cmake;3.22.1"
+
+          # Detectar el directorio NDK instalado
+          NDK_PATH="$ANDROID_HOME/ndk/28.2.13676358"
+          if [ ! -d "$NDK_PATH" ]; then
+            echo "Buscando NDK instalado alternativo..."
+            NDK_PATH=$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          fi
+
+          echo "NDK activo detectado en: $NDK_PATH"
+          echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_PATH" >> "$GITHUB_ENV"
+
+      # Paso 5: Asignar permisos de ejecución a los scripts
+      - name: 🔑 Asignar permisos de ejecución a scripts
+        run: |
+          chmod +x ./generate_debug_keystore.sh
+          chmod +x ./build_rust.sh
+          chmod +x ./gradlew
+
+      # Paso 6: Generar firma de depuración desde cero con el script .sh
+      - name: 🔏 Generar firma de depuración (Debug Keystore) desde cero
+        run: |
+          ./generate_debug_keystore.sh
+
+      # Paso 7: Compilar el APK Debug estrictamente sin caché
+      - name: 🔨 Compilar APK Debug (Sin caché)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_ROOT }}
+        run: |
+          echo "=== Iniciando compilación de APK Debug sin caché ==="
+          ./gradlew assembleDebug --no-build-cache --no-daemon --stacktrace
+
+      # Paso 8: Verificar el archivo APK generado
+      - name: 🔍 Validar existencia y métricas del APK
+        run: |
+          APK_FILE="app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$APK_FILE" ]; then
+            echo "=================================================="
+            echo "✅ Compilación exitosa. Detalles del APK Debug:"
+            echo "=================================================="
+            ls -lh "$APK_FILE"
+            echo "--------------------------------------------------"
+            echo "Hash SHA256:"
+            sha256sum "$APK_FILE"
+            echo "=================================================="
+          else
+            echo "❌ ERROR: No se generó el APK en $APK_FILE"
+            exit 1
+          fi
+
+      # Paso 9: Subir el APK Debug como artefacto de GitHub Actions
+      - name: 📦 Publicar APK Debug como Artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocuSheet-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

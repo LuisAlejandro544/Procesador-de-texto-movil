@@ -22,13 +22,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.outlined.FormatAlignRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.FontDownload
+import androidx.compose.material.icons.outlined.FormatAlignCenter
+import androidx.compose.material.icons.outlined.FormatAlignJustify
 import androidx.compose.material.icons.outlined.FormatLineSpacing
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.Margin
 import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -173,6 +178,13 @@ fun DocumentSettingsScreen(
                 else -> FontFamily.Serif
             }
 
+            val previewAlignment = when (doc.alignment.uppercase()) {
+                "JUSTIFY" -> TextAlign.Justify
+                "CENTER" -> TextAlign.Center
+                "RIGHT" -> TextAlign.Right
+                else -> TextAlign.Left
+            }
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -191,8 +203,10 @@ fun DocumentSettingsScreen(
                             fontFamily = previewFont,
                             fontSize = (doc.fontSize + 2).sp,
                             fontWeight = FontWeight.Bold,
-                            color = previewText
-                        )
+                            color = previewText,
+                            textAlign = previewAlignment
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -201,8 +215,10 @@ fun DocumentSettingsScreen(
                             fontFamily = previewFont,
                             fontSize = doc.fontSize.sp,
                             lineHeight = (doc.fontSize * doc.lineSpacing).sp,
-                            color = previewText
-                        )
+                            color = previewText,
+                            textAlign = previewAlignment
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -393,6 +409,76 @@ fun DocumentSettingsScreen(
                     isSelected = doc.marginStyle == "WIDE",
                     modifier = Modifier.weight(1f),
                     onSelect = { viewModel.updatePageSettings(marginStyle = "WIDE") }
+                )
+            }
+
+            // --- Sección 6: Alineación Cuádruple con Justificado Real ---
+            SettingsSectionHeader(
+                icon = Icons.Outlined.FormatAlignJustify,
+                title = "Alineación de Párrafos (PC Engine)"
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = doc.alignment == "LEFT",
+                    onClick = { viewModel.updatePageSettings(alignment = "LEFT") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.FormatAlignLeft,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    label = { Text("Izquierda", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = doc.alignment == "CENTER",
+                    onClick = { viewModel.updatePageSettings(alignment = "CENTER") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.FormatAlignCenter,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    label = { Text("Centro", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = doc.alignment == "RIGHT",
+                    onClick = { viewModel.updatePageSettings(alignment = "RIGHT") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.FormatAlignRight,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    label = { Text("Derecha", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = doc.alignment == "JUSTIFY",
+                    onClick = { viewModel.updatePageSettings(alignment = "JUSTIFY") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.FormatAlignJustify,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    label = { Text("Justificado", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    modifier = Modifier.weight(1f)
                 )
             }
 

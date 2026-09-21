@@ -12,14 +12,10 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 # Puente seguro de interoperabilidad con C++20 de cero costo
-cxx = "1.0"
-
-# Serialización y deserialización para modelos de documento y estado
-serde = { version = "1.0", default-features = false, features = ["alloc", "derive"] }
-serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+cxx = "=1.0.100"
 
 [build-dependencies]
-cxx-build = "1.0"
+cxx-build = "=1.0.100"
 
 [profile.release]
 opt-level = 3

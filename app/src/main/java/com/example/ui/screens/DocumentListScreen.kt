@@ -31,6 +31,10 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -88,7 +92,8 @@ fun DocumentListScreen(
     viewModel: DocumentViewModel,
     onNavigateToEditor: (Long) -> Unit,
     onNavigateToSettings: (Long) -> Unit,
-    onNavigateToAbout: () -> Unit
+    onNavigateToAbout: () -> Unit,
+    onOpenPdfUri: (Uri) -> Unit = {}
 ) {
     val documents by viewModel.filteredDocuments.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -96,6 +101,15 @@ fun DocumentListScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var showNewDocDialog by remember { mutableStateOf(false) }
     var documentToDelete by remember { mutableStateOf<DocumentEntity?>(null) }
+
+    // Selector de archivos PDF del sistema
+    val pdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            onOpenPdfUri(it)
+        }
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -131,6 +145,19 @@ fun DocumentListScreen(
                     }
                 },
                 actions = {
+                    // Botón para abrir y visualizar archivos PDF en el visor nativo
+                    IconButton(
+                        onClick = {
+                            pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                        },
+                        modifier = Modifier.testTag("open_pdf_action_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.PictureAsPdf,
+                            contentDescription = "Abrir PDF con visor nativo"
+                        )
+                    }
+
                     // Botón de búsqueda
                     IconButton(
                         onClick = { isSearchActive = !isSearchActive },

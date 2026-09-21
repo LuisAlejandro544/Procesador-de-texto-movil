@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -28,6 +29,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,17 +38,35 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.BaselineShift
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+
+data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+sealed class SheetBlock {
+    data class Paragraph(val rawLine: String) : SheetBlock()
+    data class Image(val uri: String, val wrapMode: String, val caption: String) : SheetBlock()
+    data class Table(val lines: List<String>, val style: String) : SheetBlock()
+}
 
 /**
  * PaperSheet: Representación visual y táctil de una o múltiples hojas de papel de procesador de texto.
@@ -72,7 +92,10 @@ fun PaperSheet(
     isReadOnly: Boolean,
     modifier: Modifier = Modifier,
     isCascadeMode: Boolean = true,
-    onAddPage: (() -> Unit)? = null
+    alignment: String = "LEFT",
+    onAddPage: (() -> Unit)? = null,
+    textFieldValue: TextFieldValue? = null,
+    onTextFieldValueChange: ((TextFieldValue) -> Unit)? = null
 ) {
     // Configuración de colores del papel
     val (paperBgColor, paperTextColor, paperBorderColor, gridLineColor) = when (paperType) {
@@ -143,7 +166,8 @@ fun PaperSheet(
             verticalArrangement = Arrangement.spacedBy(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            pages.forEachIndexed { index, pageContent ->
+            for (index in pages.indices) {
+                val pageContent = pages[index]
                 val pageNumber = index + 1
 
                 SingleSheetCard(
@@ -166,7 +190,8 @@ fun PaperSheet(
                     calculatedLineHeight = calculatedLineHeight,
                     horizontalMargin = horizontalMargin,
                     isReadOnly = isReadOnly,
-                    showRuler = (pageNumber == 1) // Regla principal en la primera hoja
+                    showRuler = (pageNumber == 1), // Regla principal en la primera hoja
+                    alignment = alignment
                 )
 
                 // Separador visual de escritorio entre hojas
@@ -215,7 +240,10 @@ fun PaperSheet(
             horizontalMargin = horizontalMargin,
             isReadOnly = isReadOnly,
             showRuler = true,
-            modifier = modifier
+            alignment = alignment,
+            modifier = modifier,
+            textFieldValue = textFieldValue,
+            onTextFieldValueChange = onTextFieldValueChange
         )
     }
 }
@@ -241,7 +269,10 @@ private fun SingleSheetCard(
     horizontalMargin: Dp,
     isReadOnly: Boolean,
     showRuler: Boolean,
-    modifier: Modifier = Modifier
+    alignment: String = "LEFT",
+    modifier: Modifier = Modifier,
+    textFieldValue: TextFieldValue? = null,
+    onTextFieldValueChange: ((TextFieldValue) -> Unit)? = null
 ) {
     Column(
         modifier = modifier
@@ -336,6 +367,13 @@ private fun SingleSheetCard(
             )
         }
 
+        val textAlignment = when (alignment.uppercase()) {
+            "JUSTIFY" -> TextAlign.Justify
+            "CENTER" -> TextAlign.Center
+            "RIGHT" -> TextAlign.Right
+            else -> TextAlign.Left
+        }
+
         // Cuerpo de escritura
         Box(
             modifier = Modifier
@@ -344,47 +382,89 @@ private fun SingleSheetCard(
                 .padding(horizontal = horizontalMargin, vertical = 8.dp)
         ) {
             if (isReadOnly) {
-                // Modo Lectura con renderizado enriquecido de párrafos, títulos y listas
+                // Modo Lectura con renderizado enriquecido de párrafos, títulos, imágenes con wrap y estilos
                 FormattedSheetContent(
                     text = if (pageText.isEmpty()) "Hoja en blanco" else pageText,
                     fontFamily = selectedFontFamily,
                     baseFontSize = fontSize,
                     lineHeight = calculatedLineHeight,
                     textColor = if (pageText.isEmpty()) paperTextColor.copy(alpha = 0.4f) else paperTextColor,
+                    docAlignment = alignment,
+                    borderColor = paperBorderColor,
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                // Modo Edición interactivo fluido
-                BasicTextField(
-                    value = pageText,
-                    onValueChange = onPageTextChange,
-                    textStyle = TextStyle(
-                        fontFamily = selectedFontFamily,
-                        fontSize = fontSize.sp,
-                        lineHeight = calculatedLineHeight,
-                        color = paperTextColor,
-                        fontWeight = FontWeight.Normal
-                    ),
-                    cursorBrush = SolidColor(if (paperType == "DARK") Color(0xFF60A5FA) else Color(0xFF1D4ED8)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 450.dp)
-                        .testTag("paper_editor_field_$pageNumber"),
-                    decorationBox = { innerTextField ->
-                        if (pageText.isEmpty()) {
-                            Text(
-                                text = "Escribe aquí tu texto...",
-                                style = TextStyle(
-                                    fontFamily = selectedFontFamily,
-                                    fontSize = fontSize.sp,
-                                    lineHeight = calculatedLineHeight,
-                                    color = paperTextColor.copy(alpha = 0.35f)
-                                )
-                            )
-                        }
-                        innerTextField()
+                // Modo Edición interactivo fluido con soporte de alineación cuádruple en vivo
+                // y selector del fabricante desactivado en favor del selector contextual propio de DocuSheet
+                CompositionLocalProvider(LocalTextToolbar provides remember { DocuSheetDisabledSystemToolbar() }) {
+                    if (textFieldValue != null && onTextFieldValueChange != null) {
+                        BasicTextField(
+                            value = textFieldValue,
+                            onValueChange = onTextFieldValueChange,
+                            textStyle = TextStyle(
+                                fontFamily = selectedFontFamily,
+                                fontSize = fontSize.sp,
+                                lineHeight = calculatedLineHeight,
+                                color = paperTextColor,
+                                fontWeight = FontWeight.Normal,
+                                textAlign = textAlignment
+                            ),
+                            cursorBrush = SolidColor(if (paperType == "DARK") Color(0xFF60A5FA) else Color(0xFF1D4ED8)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 450.dp)
+                                .testTag("paper_editor_field_$pageNumber"),
+                            decorationBox = { innerTextField ->
+                                if (textFieldValue.text.isEmpty()) {
+                                    Text(
+                                        text = "Escribe aquí tu texto...",
+                                        style = TextStyle(
+                                            fontFamily = selectedFontFamily,
+                                            fontSize = fontSize.sp,
+                                            lineHeight = calculatedLineHeight,
+                                            color = paperTextColor.copy(alpha = 0.35f),
+                                            textAlign = textAlignment
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                    } else {
+                        BasicTextField(
+                            value = pageText,
+                            onValueChange = onPageTextChange,
+                            textStyle = TextStyle(
+                                fontFamily = selectedFontFamily,
+                                fontSize = fontSize.sp,
+                                lineHeight = calculatedLineHeight,
+                                color = paperTextColor,
+                                fontWeight = FontWeight.Normal,
+                                textAlign = textAlignment
+                            ),
+                            cursorBrush = SolidColor(if (paperType == "DARK") Color(0xFF60A5FA) else Color(0xFF1D4ED8)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 450.dp)
+                                .testTag("paper_editor_field_$pageNumber"),
+                            decorationBox = { innerTextField ->
+                                if (pageText.isEmpty()) {
+                                    Text(
+                                        text = "Escribe aquí tu texto...",
+                                        style = TextStyle(
+                                            fontFamily = selectedFontFamily,
+                                            fontSize = fontSize.sp,
+                                            lineHeight = calculatedLineHeight,
+                                            color = paperTextColor.copy(alpha = 0.35f),
+                                            textAlign = textAlignment
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
                     }
-                )
+                }
             }
         }
 
@@ -421,7 +501,217 @@ private fun SingleSheetCard(
 }
 
 /**
- * Renderiza el texto de lectura con formato estructurado (Títulos #, ##, Citas >, Viñetas y Negritas).
+ * Renderiza una imagen incrustada en la hoja con ajuste de diseño físico (Layout & Wrap).
+ */
+@Composable
+private fun SheetImageBlock(
+    uri: String,
+    wrapMode: String,
+    caption: String,
+    borderColor: Color,
+    textColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val alignment = when (wrapMode.lowercase()) {
+        "center" -> Alignment.CenterHorizontally
+        "left" -> Alignment.Start
+        "right" -> Alignment.End
+        else -> Alignment.CenterHorizontally
+    }
+
+    val widthModifier = when (wrapMode.lowercase()) {
+        "left" -> Modifier.widthIn(max = 220.dp)
+        "right" -> Modifier.widthIn(max = 220.dp)
+        "center" -> Modifier.widthIn(max = 300.dp)
+        else -> Modifier.fillMaxWidth()
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalAlignment = alignment
+    ) {
+        Box(
+            modifier = widthModifier
+                .shadow(elevation = 3.dp, shape = RoundedCornerShape(6.dp))
+                .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(6.dp))
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(uri)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = caption.ifEmpty { "Imagen incrustada" },
+                contentScale = if (wrapMode == "full") ContentScale.FillWidth else ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 120.dp, max = 280.dp)
+            )
+        }
+
+        if (caption.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = caption,
+                style = TextStyle(
+                    fontSize = 11.sp,
+                    fontStyle = FontStyle.Italic,
+                    color = textColor.copy(alpha = 0.65f),
+                    textAlign = TextAlign.Center
+                ),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Parsea texto enriquecido reconociendo negrita, cursiva, subrayado, tachado, subíndices, superíndices
+ * y tipografías específicas inline ([font:serif], [font:sans], [font:mono], [font:cursive]).
+ */
+private fun parseRichInlineText(
+    text: String,
+    defaultFontFamily: FontFamily,
+    baseFontSize: Int,
+    defaultColor: Color
+): androidx.compose.ui.text.AnnotatedString {
+    if (text.isEmpty()) return buildAnnotatedString { append(" ") }
+
+    val pattern = Regex(
+        """(\*\*(.*?)\*\*)|(\*(.*?)\*)|(<u>(.*?)</u>)|(__(.*?)__)|(~~(.*?)~~)|(<s>(.*?)</s>)|(<sub>(.*?)</sub>)|(<sup>(.*?)</sup>)|(\[font:(serif|sans|mono|cursive)\](.*?)\[/font\])|(\[color:(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}|[a-zA-Z]+)\](.*?)\[/color\])""",
+        RegexOption.DOT_MATCHES_ALL
+    )
+
+    return buildAnnotatedString {
+        var lastIndex = 0
+        for (match in pattern.findAll(text)) {
+            val start = match.range.first
+            val end = match.range.last + 1
+
+            if (start > lastIndex) {
+                append(text.substring(lastIndex, start))
+            }
+
+            val fullMatch = match.value
+            when {
+                // **negrita**
+                fullMatch.startsWith("**") && fullMatch.endsWith("**") -> {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                        append(fullMatch.removePrefix("**").removeSuffix("**"))
+                    }
+                }
+                // *cursiva*
+                fullMatch.startsWith("*") && fullMatch.endsWith("*") && !fullMatch.startsWith("**") -> {
+                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                        append(fullMatch.removePrefix("*").removeSuffix("*"))
+                    }
+                }
+                // <u>subrayado</u>
+                fullMatch.startsWith("<u>") && fullMatch.endsWith("</u>") -> {
+                    withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
+                        append(fullMatch.removePrefix("<u>").removeSuffix("</u>"))
+                    }
+                }
+                // __subrayado__
+                fullMatch.startsWith("__") && fullMatch.endsWith("__") -> {
+                    withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
+                        append(fullMatch.removePrefix("__").removeSuffix("__"))
+                    }
+                }
+                // ~~tachado~~
+                fullMatch.startsWith("~~") && fullMatch.endsWith("~~") -> {
+                    withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
+                        append(fullMatch.removePrefix("~~").removeSuffix("~~"))
+                    }
+                }
+                // <s>tachado</s>
+                fullMatch.startsWith("<s>") && fullMatch.endsWith("</s>") -> {
+                    withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
+                        append(fullMatch.removePrefix("<s>").removeSuffix("</s>"))
+                    }
+                }
+                // <sub>subíndice</sub>
+                fullMatch.startsWith("<sub>") && fullMatch.endsWith("</sub>") -> {
+                    withStyle(
+                        SpanStyle(
+                            baselineShift = BaselineShift.Subscript,
+                            fontSize = (baseFontSize * 0.72f).sp
+                        )
+                    ) {
+                        append(fullMatch.removePrefix("<sub>").removeSuffix("</sub>"))
+                    }
+                }
+                // <sup>superíndice</sup>
+                fullMatch.startsWith("<sup>") && fullMatch.endsWith("</sup>") -> {
+                    withStyle(
+                        SpanStyle(
+                            baselineShift = BaselineShift.Superscript,
+                            fontSize = (baseFontSize * 0.72f).sp
+                        )
+                    ) {
+                        append(fullMatch.removePrefix("<sup>").removeSuffix("</sup>"))
+                    }
+                }
+                // [font:xxx]texto[/font]
+                fullMatch.startsWith("[font:") && fullMatch.endsWith("[/font]") -> {
+                    val fontType = fullMatch.substringAfter("[font:").substringBefore("]").lowercase()
+                    val innerText = fullMatch.substringAfter("]").removeSuffix("[/font]")
+                    val fontFam = when (fontType) {
+                        "sans" -> FontFamily.SansSerif
+                        "mono" -> FontFamily.Monospace
+                        "cursive" -> FontFamily.Cursive
+                        else -> FontFamily.Serif
+                    }
+                    withStyle(SpanStyle(fontFamily = fontFam)) {
+                        append(innerText)
+                    }
+                }
+                // [color:xxx]texto[/color]
+                fullMatch.startsWith("[color:") && fullMatch.endsWith("[/color]") -> {
+                    val colorTag = fullMatch.substringAfter("[color:").substringBefore("]").trim()
+                    val innerText = fullMatch.substringAfter("]").removeSuffix("[/color]")
+                    val parsedColor = try {
+                        val hex = if (colorTag.startsWith("#")) colorTag else when (colorTag.lowercase()) {
+                            "black" -> "#1E293B"
+                            "blue" -> "#1D4ED8"
+                            "red" -> "#BE123C"
+                            "green" -> "#047857"
+                            "purple" -> "#7E22CE"
+                            "amber", "yellow" -> "#D97706"
+                            "cyan", "teal" -> "#0284C7"
+                            "pink" -> "#E11D48"
+                            "sepia", "brown" -> "#78350F"
+                            "gray", "grey" -> "#475569"
+                            else -> "#$colorTag"
+                        }
+                        Color(android.graphics.Color.parseColor(hex))
+                    } catch (e: Exception) {
+                        defaultColor
+                    }
+                    withStyle(SpanStyle(color = parsedColor)) {
+                        append(innerText)
+                    }
+                }
+                else -> {
+                    append(fullMatch)
+                }
+            }
+            lastIndex = end
+        }
+
+        if (lastIndex < text.length) {
+            append(text.substring(lastIndex))
+        }
+    }
+}
+
+/**
+ * Renderiza el texto de lectura con formato estructurado, ajuste de hoja (Layout & Wrap de imágenes),
+ * alineación de párrafo cuádruple con justificado real y estilos tipográficos avanzados.
  */
 @Composable
 private fun FormattedSheetContent(
@@ -430,150 +720,278 @@ private fun FormattedSheetContent(
     baseFontSize: Int,
     lineHeight: androidx.compose.ui.unit.TextUnit,
     textColor: Color,
+    docAlignment: String = "LEFT",
+    borderColor: Color = Color.LightGray,
     modifier: Modifier = Modifier
 ) {
-    val lines = remember(text) { text.split("\n") }
+    val defaultTextAlign = when (docAlignment.uppercase()) {
+        "JUSTIFY" -> TextAlign.Justify
+        "CENTER" -> TextAlign.Center
+        "RIGHT" -> TextAlign.Right
+        else -> TextAlign.Left
+    }
+
+    // Estructuración de líneas en bloques (Párrafos, Imágenes y Tablas Editoriales)
+    val blocks = remember(text) {
+        val lines = text.split("\n")
+        val result = mutableListOf<SheetBlock>()
+        var i = 0
+
+        while (i < lines.size) {
+            val rawLine = lines[i]
+            val trimmedLine = rawLine.trim()
+
+            // 1. Bloque de tabla explícito con estilo: [table:style] ... [/table]
+            if (trimmedLine.startsWith("[table:") && trimmedLine.endsWith("]")) {
+                val style = trimmedLine.removePrefix("[table:").removeSuffix("]").trim()
+                val tableLines = mutableListOf<String>()
+                i++
+                while (i < lines.size && lines[i].trim() != "[/table]") {
+                    if (lines[i].trim().startsWith("|")) {
+                        tableLines.add(lines[i])
+                    }
+                    i++
+                }
+                result.add(SheetBlock.Table(tableLines, style.ifEmpty { "classic" }))
+                i++
+                continue
+            }
+
+            // 2. Bloque de tabla Markdown estándar implícito (líneas consecutivas que inician con '|')
+            if (trimmedLine.startsWith("|") && trimmedLine.endsWith("|") && trimmedLine.length > 2) {
+                val tableLines = mutableListOf<String>()
+                while (i < lines.size && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) {
+                    tableLines.add(lines[i])
+                    i++
+                }
+                result.add(SheetBlock.Table(tableLines, "classic"))
+                continue
+            }
+
+            // 3. Bloque de imagen con ajuste
+            val wrapImageRegex = Regex("""^!\[(?:wrap:(full|center|left|right)(?:,([^\]]*))?)?\]\(([^)]+)\)""")
+            val simpleImageRegex = Regex("""^!\[([^\]]*)\]\(([^)]+)\)""")
+
+            val wrapMatch = wrapImageRegex.find(trimmedLine)
+            val simpleMatch = if (wrapMatch == null) simpleImageRegex.find(trimmedLine) else null
+
+            if (wrapMatch != null) {
+                val wrapMode = wrapMatch.groupValues[1].ifEmpty { "full" }
+                val caption = wrapMatch.groupValues[2]
+                val uri = wrapMatch.groupValues[3]
+                result.add(SheetBlock.Image(uri, wrapMode, caption))
+                i++
+                continue
+            } else if (simpleMatch != null) {
+                val caption = simpleMatch.groupValues[1]
+                val uri = simpleMatch.groupValues[2]
+                result.add(SheetBlock.Image(uri, "full", caption))
+                i++
+                continue
+            }
+
+            // 4. Párrafo estándar
+            result.add(SheetBlock.Paragraph(rawLine))
+            i++
+        }
+        result
+    }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        lines.forEach { line ->
-            when {
-                // Título H1
-                line.startsWith("# ") -> {
-                    Text(
-                        text = line.removePrefix("# ").trim(),
-                        style = TextStyle(
-                            fontFamily = fontFamily,
-                            fontSize = (baseFontSize + 7).sp,
-                            fontWeight = FontWeight.Bold,
-                            color = textColor,
-                            lineHeight = (baseFontSize + 11).sp
-                        ),
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+        for (block in blocks) {
+            when (block) {
+                is SheetBlock.Table -> {
+                    TableSheetBlock(
+                        tableLines = block.lines,
+                        style = block.style,
+                        fontFamily = fontFamily,
+                        baseFontSize = baseFontSize,
+                        textColor = textColor,
+                        borderColor = borderColor
                     )
                 }
-                // Subtítulo H2
-                line.startsWith("## ") -> {
-                    Text(
-                        text = line.removePrefix("## ").trim(),
-                        style = TextStyle(
-                            fontFamily = fontFamily,
-                            fontSize = (baseFontSize + 4).sp,
-                            fontWeight = FontWeight.Bold,
-                            color = textColor,
-                            lineHeight = (baseFontSize + 8).sp
-                        ),
-                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                is SheetBlock.Image -> {
+                    SheetImageBlock(
+                        uri = block.uri,
+                        wrapMode = block.wrapMode,
+                        caption = block.caption,
+                        borderColor = borderColor,
+                        textColor = textColor
                     )
                 }
-                // Apartado H3
-                line.startsWith("### ") -> {
-                    Text(
-                        text = line.removePrefix("### ").trim(),
-                        style = TextStyle(
-                            fontFamily = fontFamily,
-                            fontSize = (baseFontSize + 2).sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = textColor,
-                            lineHeight = (baseFontSize + 5).sp
-                        ),
-                        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-                    )
-                }
-                // Cita destacada
-                line.startsWith("> ") -> {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                    ) {
+                is SheetBlock.Paragraph -> {
+                    val rawLine = block.rawLine
+                    val trimmedLine = rawLine.trim()
+
+                    // Comprobar directiva de alineación específica para este párrafo: [align:xxx]...[/align]
+                    val alignRegex = Regex("""^\[align:(left|center|right|justify)\](.*?)\[/align\]$""", RegexOption.DOT_MATCHES_ALL)
+                    val alignMatch = alignRegex.find(trimmedLine)
+
+                    val (effectiveLine, effectiveAlign) = if (alignMatch != null) {
+                        val mode = alignMatch.groupValues[1].lowercase()
+                        val content = alignMatch.groupValues[2]
+                        val align = when (mode) {
+                            "justify" -> TextAlign.Justify
+                            "center" -> TextAlign.Center
+                            "right" -> TextAlign.Right
+                            else -> TextAlign.Left
+                        }
+                        Pair(content, align)
+                    } else {
+                        Pair(rawLine, defaultTextAlign)
+                    }
+
+                    when {
+                        // Título H1
+                        effectiveLine.startsWith("# ") -> {
+                            Text(
+                                text = effectiveLine.removePrefix("# ").trim(),
+                                style = TextStyle(
+                                    fontFamily = fontFamily,
+                                    fontSize = (baseFontSize + 7).sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textColor,
+                                    lineHeight = (baseFontSize + 11).sp,
+                                    textAlign = effectiveAlign
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp, bottom = 4.dp)
+                            )
+                        }
+                        // Subtítulo H2
+                        effectiveLine.startsWith("## ") -> {
+                            Text(
+                                text = effectiveLine.removePrefix("## ").trim(),
+                                style = TextStyle(
+                                    fontFamily = fontFamily,
+                                    fontSize = (baseFontSize + 4).sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textColor,
+                                    lineHeight = (baseFontSize + 8).sp,
+                                    textAlign = effectiveAlign
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp, bottom = 2.dp)
+                            )
+                        }
+                        // Apartado H3
+                        effectiveLine.startsWith("### ") -> {
+                            Text(
+                                text = effectiveLine.removePrefix("### ").trim(),
+                                style = TextStyle(
+                                    fontFamily = fontFamily,
+                                    fontSize = (baseFontSize + 2).sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = textColor,
+                                    lineHeight = (baseFontSize + 5).sp,
+                                    textAlign = effectiveAlign
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp, bottom = 2.dp)
+                            )
+                        }
+                        // Cita destacada
+                        effectiveLine.startsWith("> ") -> {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(3.dp)
+                                    .height(22.dp)
+                                    .background(textColor.copy(alpha = 0.4f), RoundedCornerShape(1.dp))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = effectiveLine.removePrefix("> ").trim(),
+                                style = TextStyle(
+                                    fontFamily = fontFamily,
+                                    fontSize = baseFontSize.sp,
+                                    fontStyle = FontStyle.Italic,
+                                    color = textColor.copy(alpha = 0.85f),
+                                    lineHeight = lineHeight,
+                                    textAlign = effectiveAlign
+                                ),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    // Tareas con casillas [ ] o [x]
+                    effectiveLine.startsWith("[ ] ") -> {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+                            Icon(
+                                imageVector = Icons.Outlined.CheckBoxOutlineBlank,
+                                contentDescription = null,
+                                tint = textColor.copy(alpha = 0.6f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = effectiveLine.removePrefix("[ ] ").trim(),
+                                style = TextStyle(fontFamily = fontFamily, fontSize = baseFontSize.sp, color = textColor)
+                            )
+                        }
+                    }
+                    effectiveLine.startsWith("[x] ") || effectiveLine.startsWith("[X] ") -> {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+                            Icon(
+                                imageVector = Icons.Outlined.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = effectiveLine.substring(4).trim(),
+                                style = TextStyle(
+                                    fontFamily = fontFamily,
+                                    fontSize = baseFontSize.sp,
+                                    color = textColor.copy(alpha = 0.5f),
+                                    textDecoration = TextDecoration.LineThrough
+                                )
+                            )
+                        }
+                    }
+                    // Separador horizontal
+                    effectiveLine.startsWith("───") || effectiveLine.startsWith("---") -> {
                         Box(
                             modifier = Modifier
-                                .width(3.dp)
-                                .height(22.dp)
-                                .background(textColor.copy(alpha = 0.4f), RoundedCornerShape(1.dp))
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp)
+                                .height(1.dp)
+                                .background(textColor.copy(alpha = 0.2f))
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    // Párrafo normal con soporte de texto enriquecido completo
+                    else -> {
+                        val annotatedString = parseRichInlineText(
+                            text = effectiveLine,
+                            defaultFontFamily = fontFamily,
+                            baseFontSize = baseFontSize,
+                            defaultColor = textColor
+                        )
                         Text(
-                            text = line.removePrefix("> ").trim(),
+                            text = annotatedString,
                             style = TextStyle(
                                 fontFamily = fontFamily,
                                 fontSize = baseFontSize.sp,
-                                fontStyle = FontStyle.Italic,
-                                color = textColor.copy(alpha = 0.85f),
-                                lineHeight = lineHeight
-                            )
+                                lineHeight = lineHeight,
+                                color = textColor,
+                                textAlign = effectiveAlign
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
-                }
-                // Tareas con casillas [ ] o [x]
-                line.startsWith("[ ] ") -> {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-                        Icon(
-                            imageVector = Icons.Outlined.CheckBoxOutlineBlank,
-                            contentDescription = null,
-                            tint = textColor.copy(alpha = 0.6f),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = line.removePrefix("[ ] ").trim(),
-                            style = TextStyle(fontFamily = fontFamily, fontSize = baseFontSize.sp, color = textColor)
-                        )
-                    }
-                }
-                line.startsWith("[x] ") || line.startsWith("[X] ") -> {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-                        Icon(
-                            imageVector = Icons.Outlined.Check,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = line.substring(4).trim(),
-                            style = TextStyle(
-                                fontFamily = fontFamily,
-                                fontSize = baseFontSize.sp,
-                                color = textColor.copy(alpha = 0.5f),
-                                fontWeight = FontWeight.Normal
-                            )
-                        )
-                    }
-                }
-                // Párrafo normal con soporte de negritas sencillas
-                else -> {
-                    val annotatedString = buildAnnotatedString {
-                        var currentIndex = 0
-                        val boldPattern = Regex("\\*\\*(.*?)\\*\\*")
-                        val matches = boldPattern.findAll(line)
-                        for (match in matches) {
-                            if (match.range.first > currentIndex) {
-                                append(line.substring(currentIndex, match.range.first))
-                            }
-                            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                                append(match.groupValues[1])
-                            }
-                            currentIndex = match.range.last + 1
-                        }
-                        if (currentIndex < line.length) {
-                            append(line.substring(currentIndex))
-                        }
-                    }
-                    val finalAnnotated = if (annotatedString.isEmpty()) buildAnnotatedString { append(" ") } else annotatedString
-                    Text(
-                        text = finalAnnotated,
-                        style = TextStyle(
-                            fontFamily = fontFamily,
-                            fontSize = baseFontSize.sp,
-                            lineHeight = lineHeight,
-                            color = textColor
-                        )
-                    )
                 }
             }
         }
     }
+}
 }
 
 /**
@@ -722,5 +1140,3 @@ private fun CornerMarginGuide(
         }
     }
 }
-
-private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

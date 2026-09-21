@@ -53,12 +53,33 @@ struct LineBreakResult {
 };
 
 /**
+ * Especificación métrica de diseño para Tablas y Cuadrículas Editoriales.
+ * Define la distribución armónica de anchos de columnas y márgenes de celda.
+ */
+struct TableLayoutResult {
+    std::vector<float> column_widths_pt;
+    float total_table_width_pt;
+    float cell_padding_horizontal_pt;
+    float cell_padding_vertical_pt;
+};
+
+/**
  * Clase base del motor tipográfico y maquetación en C++20.
  */
 class TypographyEngine {
 public:
     TypographyEngine();
     ~TypographyEngine() = default;
+
+    /**
+     * Calcula la distribución métrica y anchos de columnas para Tablas y Cuadrículas
+     * Editoriales de acuerdo al ancho imprimible de la hoja física.
+     */
+    [[nodiscard]] TableLayoutResult compute_table_layout(
+        int num_columns,
+        float printable_width_pt,
+        std::span<const float> custom_weights = {}
+    );
 
     /**
      * Calcula la posición óptima de salto de línea según los márgenes de la hoja.
@@ -69,12 +90,84 @@ public:
     );
 
     /**
+     * Calcula la distribución de espaciado inter-palabras para Justificado Real
+     * a partir del texto de la línea y el ancho objetivo en puntos tipográficos.
+     */
+    [[nodiscard]] std::vector<float> compute_justified_spacing(
+        std::string_view line_text,
+        float target_width_pt
+    );
+
+    /**
      * Obtiene la versión del motor C++20 compilado.
      */
     [[nodiscard]] std::string get_engine_version() const;
 
 private:
-    float default_dpi_{72.0f};
+    [[maybe_unused]] float default_dpi_{72.0f};
+};
+
+/**
+ * Resultado de una operación de movimiento o transposición de texto.
+ */
+struct TextPermutationResult {
+    std::string new_text;
+    size_t new_start{0};
+    size_t new_end{0};
+    bool success{false};
+    std::string message;
+};
+
+/**
+ * TextManipulator: Motor nativo en C++20 para transposición, permutación
+ * e intercambio de bloques de texto (estilo procesador de texto de PC).
+ */
+class TextManipulator {
+public:
+    TextManipulator() = default;
+    ~TextManipulator() = default;
+
+    /**
+     * Intercambia dos rangos de texto no solapados [start_a, end_a) y [start_b, end_b).
+     */
+    [[nodiscard]] TextPermutationResult swap_ranges(
+        std::string_view full_text,
+        size_t start_a,
+        size_t end_a,
+        size_t start_b,
+        size_t end_b
+    );
+
+    /**
+     * Mueve el rango [start, end) a una posición objetivo dentro del documento.
+     */
+    [[nodiscard]] TextPermutationResult move_range(
+        std::string_view full_text,
+        size_t start,
+        size_t end,
+        size_t target_position
+    );
+
+    /**
+     * Intercambia el párrafo actual con el párrafo inmediatamente anterior (swap_up = true)
+     * o con el párrafo inmediatamente posterior (swap_up = false).
+     */
+    [[nodiscard]] TextPermutationResult swap_paragraph(
+        std::string_view full_text,
+        size_t cursor_start,
+        size_t cursor_end,
+        bool swap_up
+    );
+
+    /**
+     * Mueve el párrafo actual antes del anterior (move_up = true) o después del siguiente (move_up = false).
+     */
+    [[nodiscard]] TextPermutationResult move_paragraph(
+        std::string_view full_text,
+        size_t cursor_start,
+        size_t cursor_end,
+        bool move_up
+    );
 };
 
 } // namespace docusheet::core

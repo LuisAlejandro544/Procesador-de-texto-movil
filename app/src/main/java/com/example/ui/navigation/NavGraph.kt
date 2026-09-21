@@ -11,6 +11,8 @@ import com.example.ui.screens.AboutScreen
 import com.example.ui.screens.DocumentEditorScreen
 import com.example.ui.screens.DocumentListScreen
 import com.example.ui.screens.DocumentSettingsScreen
+import com.example.ui.screens.PdfViewerScreen
+import android.net.Uri
 
 /**
  * NavGraph: Grafo central de navegación modular de DocuSheet.
@@ -20,15 +22,17 @@ import com.example.ui.screens.DocumentSettingsScreen
  * - "editor/{docId}": Editor de la hoja de texto activa
  * - "settings/{docId}": Configuración de formato y textura del papel
  * - "about": Pantalla de información, estadísticas y consejos de redacción
+ * - "pdf_viewer": Visor nativo de alta resolución para documentos PDF ("Abrir con" o visualización local)
  */
 @Composable
 fun DocuSheetNavGraph(
     navController: NavHostController,
-    viewModel: DocumentViewModel
+    viewModel: DocumentViewModel,
+    initialPdfUri: Uri? = null
 ) {
     NavHost(
         navController = navController,
-        startDestination = "documents"
+        startDestination = if (initialPdfUri != null) "pdf_viewer?uri=${Uri.encode(initialPdfUri.toString())}" else "documents"
     ) {
         // Pantalla 1: Biblioteca de Documentos
         composable(route = "documents") {
@@ -42,6 +46,10 @@ fun DocuSheetNavGraph(
                 },
                 onNavigateToAbout = {
                     navController.navigate("about")
+                },
+                onOpenPdfUri = { uri ->
+                    val encoded = Uri.encode(uri.toString())
+                    navController.navigate("pdf_viewer?uri=$encoded")
                 }
             )
         }
@@ -89,6 +97,31 @@ fun DocuSheetNavGraph(
                 viewModel = viewModel,
                 onNavigateBack = {
                     navController.popBackStack()
+                }
+            )
+        }
+
+        // Pantalla 5: Visor Nativo de PDF de Alta Fidelidad
+        composable(
+            route = "pdf_viewer?uri={uri}",
+            arguments = listOf(
+                navArgument("uri") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                }
+            )
+        ) { backStackEntry ->
+            val rawUri = backStackEntry.arguments?.getString("uri") ?: ""
+            val parsedUri = if (rawUri.isNotBlank()) Uri.parse(Uri.decode(rawUri)) else Uri.EMPTY
+            PdfViewerScreen(
+                pdfUri = parsedUri,
+                onNavigateBack = {
+                    // Si vino directamente de "abrir con" y no hay backstack, ir a documents
+                    if (!navController.popBackStack()) {
+                        navController.navigate("documents") {
+                            popUpTo(0)
+                        }
+                    }
                 }
             )
         }

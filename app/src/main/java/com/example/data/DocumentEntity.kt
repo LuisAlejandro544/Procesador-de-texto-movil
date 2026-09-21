@@ -20,6 +20,7 @@ data class DocumentEntity(
     val fontSize: Int = 16,               // Tamaño en SP (14, 16, 18, 20, 24)
     val lineSpacing: Float = 1.5f,        // Multiplicador de interlineado (1.2f, 1.5f, 2.0f)
     val marginStyle: String = "NORMAL",   // NARROW, NORMAL, WIDE
+    val alignment: String = "LEFT",       // LEFT, CENTER, RIGHT, JUSTIFY (Alineación Cuádruple con Justificado Real)
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

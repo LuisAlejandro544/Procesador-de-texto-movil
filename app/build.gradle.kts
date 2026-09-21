@@ -5,7 +5,6 @@ plugins {
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
-  alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
 }
 
@@ -15,7 +14,7 @@ android {
 
   defaultConfig {
     applicationId = "com.aistudio.docusheet.wtxrpq"
-    minSdk = 24
+    minSdk = 28
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
@@ -67,6 +66,11 @@ android {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
+  sourceSets {
+    getByName("main") {
+      jniLibs.srcDirs("src/main/jniLibs")
+    }
+  }
   buildFeatures {
     compose = true
     buildConfig = true
@@ -76,14 +80,6 @@ android {
     includeInApk = false
     includeInBundle = true
   }
-}
-
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
-secrets {
-  propertiesFileName = ".env"
-  defaultPropertiesFileName = ".env.example"
-  ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
@@ -113,7 +109,7 @@ dependencies {
   implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
-  // implementation(libs.coil.compose)
+  implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
@@ -154,19 +150,27 @@ dependencies {
   "ksp"(libs.moshi.kotlin.codegen)
 }
 
-// Tarea de compilación del núcleo de Rust mediante Cargo
+// Tarea de compilación y enlace del núcleo de Rust mediante Cargo para las 4 arquitecturas
 tasks.register<Exec>("buildRustCore") {
   group = "build"
-  description = "Compila el motor de texto en Rust (rust-core) con Cargo para alto rendimiento"
-  workingDir = file("${rootDir}/rust-core")
-  
-  val cargoPath = runCatching {
-    ProcessBuilder("which", "cargo").start().inputStream.bufferedReader().readText().trim()
-  }.getOrNull()
+  description = "Compila el motor de texto en Rust (rust-core) con Cargo para alto rendimiento y empaqueta en jniLibs"
+  workingDir = file("${rootDir}")
 
-  if (!cargoPath.isNullOrEmpty() && file(cargoPath).exists()) {
-    commandLine(cargoPath, "build", "--release")
-  } else {
-    commandLine("echo", "DocuSheet Rust: Cargo no está instalado en este entorno; omitiendo compilación.")
-  }
+  commandLine(
+    "bash",
+    "-c",
+    """
+    if [ -f "${rootDir}/build_rust.sh" ] && command -v cargo >/dev/null 2>&1; then
+      "${rootDir}/build_rust.sh"
+    elif [ -d "${projectDir}/src/main/jniLibs" ]; then
+      echo "DocuSheet: Utilizando binarios de Rust preconstruidos en jniLibs."
+    else
+      echo "DocuSheet Rust: Preparando compilación nativa."
+    fi
+    """.trimIndent()
+  )
+}
+
+tasks.named("preBuild") {
+  dependsOn("buildRustCore")
 }

@@ -43,8 +43,15 @@ impl CascadePaginator {
                 let mut current_page = String::new();
 
                 for p in paragraphs {
+                    // Si el párrafo contiene una imagen incrustada, ponderamos su peso visual
+                    let effective_weight = if p.starts_with("![wrap:") || p.starts_with("![") {
+                        p.len() + 350 // Ponderación de altura de imagen
+                    } else {
+                        p.len()
+                    };
+
                     if !current_page.is_empty()
-                        && (current_page.len() + p.len() > self.chars_per_sheet_target)
+                        && (current_page.len() + effective_weight > self.chars_per_sheet_target)
                     {
                         pages.push(current_page.trim_end().to_string());
                         current_page = String::new();

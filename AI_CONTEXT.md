@@ -20,11 +20,16 @@ DocuSheet es un procesador de textos para Android cuyo objetivo primordial es re
    - Al usuario le gustan las aplicaciones completas, ricas en herramientas visuales, métricas detalladas y paneles profesionales.
    - La aplicación cuenta con pantallas especializadas e interconectadas (`DocumentListScreen`, `DocumentEditorScreen`, `DocumentSettingsScreen`, `AboutScreen`).
 
-3. **Exportación Digital Nativa (`DocumentExporter.kt`)**:
-   - Soporte para generar documentos **PDF digital** en formato A4 estándar con encabezados, márgenes y pie de página, y archivos **Markdown (.md)** universales.
+3. **Exportación Digital Nativa Multi-Formato (`DocumentExporter.kt`)**:
+   - Soporte para generar documentos **PDF digital** en formato A4 estándar con encabezados, márgenes y pie de página, archivos **Markdown (.md)** universales, **HTML Editorial Estructurado (.html)** con estilos CSS de imprenta embebidos, y **Documentos de Texto Plano (.txt)** para máxima portabilidad.
    - Se distribuyen mediante `FileProvider` sin exigir permisos invasivos de almacenamiento del sistema operativo.
 
-4. **Métricas Detalladas y Gráficas de Productividad**:
+4. **Visor Nativo de PDF e Integración "Abrir Con" (`PdfViewerScreen.kt`)**:
+   - Filtros de intención `ACTION_VIEW` y `ACTION_SEND` en `AndroidManifest.xml` para interceptar y abrir archivos PDF desde cualquier app (WhatsApp, Drive, exploradores de archivos).
+   - Renderizado en alta definición 2x con `PdfRenderer` en segundo plano (`Dispatchers.IO`), con sombras de hoja de papel idénticas a DocuSheet, zoom gestual (Pinch-to-zoom 75% a 350%), barra de estado con contador de páginas y botón para compartir.
+   - Acceso desde la pantalla principal mediante el selector de documentos del sistema (`OpenDocument`).
+
+5. **Métricas Detalladas y Gráficas de Productividad**:
    - El sistema calcula palabras, caracteres, párrafos, oraciones estimadas, tiempos de lectura y alocución oral en vivo.
    - Incluye fijación de meta diaria de escritura con anillo de progreso animado y gráficas de distribución de contenido y actividad semanal.
 
@@ -41,6 +46,31 @@ DocuSheet es un procesador de textos para Android cuyo objetivo primordial es re
    - **C++20 (app/src/main/cpp)**: Motor tipográfico, medición de glifos y maquetación de alto rendimiento compilado con Android NDK y CMake.
    - **Interoperabilidad CXX / JNI**: Comunicación de cero costo entre Rust y C++, y puentes JNI seguros mediante `NativeEngineBridge.kt`.
    - **Soporte de Arquitecturas**: Soporte simultáneo obligatorio para 64 bits (`arm64-v8a`, `x86_64`) y 32 bits (`armeabi-v7a`, `x86`).
+
+8. **Potencia de Procesador de PC en Android 9.0+ (API 28)**:
+   - Superación de limitaciones del sistema antiguo para incorporar renderizado de procesador de escritorio.
+   - **Alineación Cuádruple con Justificado Real**: Directivas por párrafo (`[align:left|center|right|justify]`) y global de documento (`alignment`), con cálculo nativo en C++20 (`compute_justified_spacing`).
+   - **Formatos Tipográficos Avanzados**: Subrayado (`<u>`, `__`), tachado (`~~`, `<s>`), subíndice (`<sub>`), superíndice (`<sup>`) y familias tipográficas por fragmento (`[font:serif|sans|mono|cursive]`).
+   - **Inserción de Imágenes con Ajuste de Hoja (Layout & Wrap)**: Modos `full`, `center`, `left`, `right` con renderizado asíncrono en Coil y reserva de altura en el paginador matemático de Rust.
+
+9. **Selector Contextual Estilo PC y Desactivación del Selector Nativo**:
+   - Reemplazo total del menú contextual por defecto del fabricante mediante `LocalTextToolbar` con `DocuSheetDisabledSystemToolbar`.
+   - Control de cursor y selección precisa con `TextFieldValue` en `DocumentViewModel`.
+   - Barra contextual `DocuSheetPcSelectionBar` con botones táctiles de 48dp: Copiar, Cortar, Pegar, Seleccionar Todo.
+   - Selector dinámico de tipografía de fragmento (`[font:...]`) y paleta de colores de tinta directa (`[color:#HEX]...[/color]`).
+   - El parser de texto enriquecido en `PaperSheet.kt` colorea de forma instantánea el texto mediante `SpanStyle(color = parsedColor)`.
+
+10. **Herramienta de Tablas y Cuadrículas Editoriales**:
+   - Diálogo interactivo táctil `TableInsertDialog.kt` adaptado a pantallas táctiles móviles con botones de al menos 48x48 dp.
+   - Permite configurar dimensiones (1..6 columnas, 1..10 filas), interruptor para diferenciar la fila de encabezados y 4 estilos de maquetación editorial (Clásica, Editorial, Rayada cebra y Compacta).
+   - Cálculo de distribución métrica ejecutado nativamente en C++20 (`computeTableColumnWidthsSafe`) con compilación integral para las 4 ABIs de Android (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`).
+   - Renderizado visual integrado en `PaperSheet.kt` mediante bloques `SheetBlock.Table` y componente especializado `TableSheetBlock.kt`.
+
+11. **Modos de Edición Avanzada de PC (Mover e Intercambiar / Transposición Atómica)**:
+   - Transposición bidireccional atómica entre dos fragmentos arbitrarios (Bloque A ⇄ Bloque B) con banner de confirmación en la barra contextual.
+   - Transposición rápida de párrafos (Swap ↑ / Swap ↓) e intercambio dinámico con el portapapeles.
+   - Desplazamiento rápido de bloques seleccionados al inicio de la hoja (`moveSelectionToStart`) o al final (`moveSelectionToEnd`).
+   - Algoritmo de bajo nivel implementado en C++20 (`TextManipulator`) y en el `PieceTable` de Rust (`swap_ranges` y `move_range`), con respaldo seguro en Kotlin a través de `NativeEngineBridge.kt`.
 
 ---
 

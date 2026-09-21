@@ -43,5 +43,9 @@ Este documento define las reglas de comportamiento, convenciones de ingeniería 
 - **Soporte de Arquitecturas**: Garantizar siempre que la configuración admita tanto procesadores modernos de 64 bits (`arm64-v8a`, `x86_64`) como procesadores de 32 bits (`armeabi-v7a`, `x86`).
 - **Control de Versiones y Limpieza**: Mantener actualizado el archivo `.gitignore` para impedir que se suban carpetas temporales de compilación nativa (`.cxx/`, `.externalNativeBuild/`, `target/`, `CMakeFiles/`, `.ninja`, librerías binarias `.so` intermedias o ejecutables).
 
-### 7. Verificación de Compilación
+### 7. Selector Contextual de PC y Manipulación Atómica de Texto
+- La selección de texto en la hoja debe usar siempre la barra de herramientas especializada `DocuSheetPcSelectionBar`, impidiendo la aparición del menú contextual nativo del fabricante del móvil (`DocuSheetDisabledSystemToolbar`).
+- Las funciones de manipulación de texto (intercambio atómico Bloque A ⇄ Bloque B, swap de párrafos y desplazamiento al inicio o al final) deben preservar la integridad de los saltos de página y sincronizarse con `DocumentViewModel.onTextFieldValueChange` para mantener la coherencia del historial de deshacer/rehacer y del autoguardado.
+
+### 8. Verificación de Compilación
 - Cada vez que se realicen cambios en el código, se debe verificar la compilación exitosa utilizando la herramienta de compilación (`compile_applet`) antes de dar por finalizada la tarea.

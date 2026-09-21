@@ -26,6 +26,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.outlined.FormatAlignRight
 import androidx.compose.material.icons.automirrored.outlined.FormatIndentIncrease
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
@@ -33,16 +35,27 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FontDownload
+import androidx.compose.material.icons.outlined.FormatAlignCenter
+import androidx.compose.material.icons.outlined.FormatAlignJustify
 import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.FormatListNumbered
 import androidx.compose.material.icons.outlined.FormatQuote
+import androidx.compose.material.icons.outlined.FormatStrikethrough
+import androidx.compose.material.icons.outlined.FormatUnderlined
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.HorizontalRule
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.TextSnippet
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.NoteAdd
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Subscript
+import androidx.compose.material.icons.outlined.Superscript
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material.icons.outlined.Title
 import androidx.compose.material.icons.outlined.Today
@@ -50,17 +63,25 @@ import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.ZoomIn
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -74,15 +95,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.DocumentViewModel
+import com.example.ui.components.DocuSheetPcSelectionBar
 import com.example.ui.components.PaperSheet
+import com.example.ui.components.TableInsertDialog
 import com.example.util.DocumentExporter
 
 /**
@@ -111,6 +136,7 @@ fun DocumentEditorScreen(
 
     val activeDoc by viewModel.activeDocument.collectAsStateWithLifecycle()
     val editorContent by viewModel.editorContent.collectAsStateWithLifecycle()
+    val editorTextFieldValue by viewModel.editorTextFieldValue.collectAsStateWithLifecycle()
     val editorTitle by viewModel.editorTitle.collectAsStateWithLifecycle()
     val saveStatus by viewModel.saveStatus.collectAsStateWithLifecycle()
     val isReadOnly by viewModel.isReadOnlyMode.collectAsStateWithLifecycle()
@@ -118,8 +144,27 @@ fun DocumentEditorScreen(
     val isCascadeMode by viewModel.isCascadeMode.collectAsStateWithLifecycle()
     val canUndo by viewModel.canUndo.collectAsStateWithLifecycle()
     val canRedo by viewModel.canRedo.collectAsStateWithLifecycle()
+    val markedSwapBlock by viewModel.markedSwapBlock.collectAsStateWithLifecycle()
+    val feedbackMessage by viewModel.userFeedbackMessage.collectAsStateWithLifecycle()
+
+    val clipboardManager = LocalClipboardManager.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(feedbackMessage) {
+        feedbackMessage?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearFeedbackMessage()
+        }
+    }
 
     var showExportMenu by remember { mutableStateOf(false) }
+    var showAlignMenu by remember { mutableStateOf(false) }
+    var showFontMenu by remember { mutableStateOf(false) }
+    var showImageDialog by remember { mutableStateOf(false) }
+    var showTableDialog by remember { mutableStateOf(false) }
+    var imageUrlInput by remember { mutableStateOf("") }
+    var imageCaptionInput by remember { mutableStateOf("") }
+    var imageWrapMode by remember { mutableStateOf("full") }
 
     val wordCount = viewModel.getWordCount(editorContent)
     val charCount = viewModel.getCharCount(editorContent)
@@ -130,6 +175,7 @@ fun DocumentEditorScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -321,7 +367,68 @@ fun DocumentEditorScreen(
                             )
 
                             DropdownMenuItem(
-                                text = { Text("Compartir Texto Plano") },
+                                text = { Text("Exportar como HTML Editorial (.html)") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Language,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0284C7)
+                                    )
+                                },
+                                onClick = {
+                                    showExportMenu = false
+                                    viewModel.saveImmediately()
+                                    val uri = DocumentExporter.exportToHtml(
+                                        context = context,
+                                        title = editorTitle,
+                                        content = editorContent,
+                                        fontStyle = doc?.fontStyle ?: "SERIF"
+                                    )
+                                    if (uri != null) {
+                                        DocumentExporter.shareExportedFile(
+                                            context = context,
+                                            uri = uri,
+                                            mimeType = "text/html",
+                                            title = "$editorTitle.html"
+                                        )
+                                    } else {
+                                        Toast.makeText(context, "Error al generar el HTML", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("Exportar como Documento Texto (.txt)") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.TextSnippet,
+                                        contentDescription = null,
+                                        tint = Color(0xFF059669)
+                                    )
+                                },
+                                onClick = {
+                                    showExportMenu = false
+                                    viewModel.saveImmediately()
+                                    val uri = DocumentExporter.exportToPlainText(
+                                        context = context,
+                                        title = editorTitle,
+                                        content = editorContent
+                                    )
+                                    if (uri != null) {
+                                        DocumentExporter.shareExportedFile(
+                                            context = context,
+                                            uri = uri,
+                                            mimeType = "text/plain",
+                                            title = "$editorTitle.txt"
+                                        )
+                                    } else {
+                                        Toast.makeText(context, "Error al generar el archivo .txt", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("Compartir Texto Rápido") },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Outlined.Share,
@@ -496,6 +603,205 @@ fun DocumentEditorScreen(
                             onClick = { viewModel.insertItalic() }
                         )
 
+                        // Subrayado
+                        QuickToolButton(
+                            icon = Icons.Outlined.FormatUnderlined,
+                            label = "Subrayado",
+                            onClick = { viewModel.insertUnderline() }
+                        )
+
+                        // Tachado
+                        QuickToolButton(
+                            icon = Icons.Outlined.FormatStrikethrough,
+                            label = "Tachado",
+                            onClick = { viewModel.insertStrikethrough() }
+                        )
+
+                        // Subíndice
+                        QuickToolButton(
+                            icon = Icons.Outlined.Subscript,
+                            label = "Subíndice",
+                            onClick = { viewModel.insertSubscript() }
+                        )
+
+                        // Superíndice
+                        QuickToolButton(
+                            icon = Icons.Outlined.Superscript,
+                            label = "Superíndice",
+                            onClick = { viewModel.insertSuperscript() }
+                        )
+
+                        // Alineación Cuádruple con Justificado Real (Párrafo o Global)
+                        Box {
+                            QuickToolButton(
+                                icon = Icons.Outlined.FormatAlignJustify,
+                                label = "Alineación",
+                                onClick = { showAlignMenu = true }
+                            )
+                            DropdownMenu(
+                                expanded = showAlignMenu,
+                                onDismissRequest = { showAlignMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Párrafo: Izquierda", fontWeight = FontWeight.SemiBold) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.FormatAlignLeft, contentDescription = null) },
+                                    onClick = {
+                                        viewModel.insertAlignmentTag("left")
+                                        showAlignMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Párrafo: Centrado", fontWeight = FontWeight.SemiBold) },
+                                    leadingIcon = { Icon(Icons.Outlined.FormatAlignCenter, contentDescription = null) },
+                                    onClick = {
+                                        viewModel.insertAlignmentTag("center")
+                                        showAlignMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Párrafo: Derecha", fontWeight = FontWeight.SemiBold) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.FormatAlignRight, contentDescription = null) },
+                                    onClick = {
+                                        viewModel.insertAlignmentTag("right")
+                                        showAlignMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Párrafo: Justificado Real", fontWeight = FontWeight.Bold) },
+                                    leadingIcon = { Icon(Icons.Outlined.FormatAlignJustify, contentDescription = null) },
+                                    onClick = {
+                                        viewModel.insertAlignmentTag("justify")
+                                        showAlignMenu = false
+                                    }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Documento: Izquierda") },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.FormatAlignLeft, contentDescription = null) },
+                                    onClick = {
+                                        viewModel.setGlobalAlignment("LEFT")
+                                        showAlignMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Documento: Centrado") },
+                                    leadingIcon = { Icon(Icons.Outlined.FormatAlignCenter, contentDescription = null) },
+                                    onClick = {
+                                        viewModel.setGlobalAlignment("CENTER")
+                                        showAlignMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Documento: Derecha") },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.FormatAlignRight, contentDescription = null) },
+                                    onClick = {
+                                        viewModel.setGlobalAlignment("RIGHT")
+                                        showAlignMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Documento: Justificado Real", fontWeight = FontWeight.Bold) },
+                                    leadingIcon = { Icon(Icons.Outlined.FormatAlignJustify, contentDescription = null) },
+                                    onClick = {
+                                        viewModel.setGlobalAlignment("JUSTIFY")
+                                        showAlignMenu = false
+                                    }
+                                )
+                            }
+                        }
+
+                        // Selector de Tipografía (Inline o Global)
+                        Box {
+                            QuickToolButton(
+                                icon = Icons.Outlined.FontDownload,
+                                label = "Tipografía",
+                                onClick = { showFontMenu = true }
+                            )
+                            DropdownMenu(
+                                expanded = showFontMenu,
+                                onDismissRequest = { showFontMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Fragmento: Serif (Editorial)") },
+                                    onClick = {
+                                        viewModel.insertFontTag("serif")
+                                        showFontMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Fragmento: Sans-Serif (Moderna)") },
+                                    onClick = {
+                                        viewModel.insertFontTag("sans")
+                                        showFontMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Fragmento: Monospace (Máquina)") },
+                                    onClick = {
+                                        viewModel.insertFontTag("mono")
+                                        showFontMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Fragmento: Caligráfica (Manuscrita)") },
+                                    onClick = {
+                                        viewModel.insertFontTag("cursive")
+                                        showFontMenu = false
+                                    }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Documento Global: Serif") },
+                                    onClick = {
+                                        viewModel.updatePageSettings(fontStyle = "SERIF")
+                                        showFontMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Documento Global: Sans-Serif") },
+                                    onClick = {
+                                        viewModel.updatePageSettings(fontStyle = "SANS_SERIF")
+                                        showFontMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Documento Global: Monospace") },
+                                    onClick = {
+                                        viewModel.updatePageSettings(fontStyle = "MONOSPACE")
+                                        showFontMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Documento Global: Caligráfica") },
+                                    onClick = {
+                                        viewModel.updatePageSettings(fontStyle = "CURSIVE")
+                                        showFontMenu = false
+                                    }
+                                )
+                            }
+                        }
+
+                        // Inserción de Imágenes con Ajuste de Hoja (Layout & Wrap)
+                        QuickToolButton(
+                            icon = Icons.Outlined.Image,
+                            label = "Insertar Imagen",
+                            onClick = {
+                                imageUrlInput = ""
+                                imageCaptionInput = ""
+                                imageWrapMode = "full"
+                                showImageDialog = true
+                            }
+                        )
+
+                        // Inserción de Tablas y Cuadrículas Editoriales
+                        QuickToolButton(
+                            icon = Icons.Outlined.GridView,
+                            label = "Insertar Tabla",
+                            onClick = {
+                                showTableDialog = true
+                            }
+                        )
+
                         // Insertar viñeta
                         QuickToolButton(
                             icon = Icons.Outlined.FormatListBulleted,
@@ -560,6 +866,27 @@ fun DocumentEditorScreen(
                 }
             }
 
+            // --- Barra de Selección Contextual Estilo PC (Reemplazo del selector del sistema) ---
+            DocuSheetPcSelectionBar(
+                textFieldValue = editorTextFieldValue,
+                onValueChange = { viewModel.onTextFieldValueChange(it) },
+                onDismissSelection = { viewModel.clearSelection() },
+                markedSwapBlock = markedSwapBlock,
+                onMarkForSwap = { viewModel.markCurrentSelectionForSwap() },
+                onExecuteSwap = { viewModel.executeSwapWithMarkedBlock() },
+                onClearMarkedSwap = { viewModel.clearMarkedSwapBlock() },
+                onSwapUp = { viewModel.swapParagraphUp() },
+                onSwapDown = { viewModel.swapParagraphDown() },
+                onMoveToStart = { viewModel.moveSelectionToStart() },
+                onMoveToEnd = { viewModel.moveSelectionToEnd() },
+                onSwapWithClipboard = { clipText ->
+                    val oldText = viewModel.swapSelectionWithClipboard(clipText)
+                    if (oldText.isNotEmpty()) {
+                        clipboardManager.setText(AnnotatedString(oldText))
+                    }
+                }
+            )
+
             // --- Área de Trabajo tipo Escritorio donde reposa la Hoja ---
             Box(
                 modifier = Modifier
@@ -583,15 +910,119 @@ fun DocumentEditorScreen(
                             fontSize = d.fontSize,
                             lineSpacing = d.lineSpacing,
                             marginStyle = d.marginStyle,
+                            alignment = d.alignment,
                             isReadOnly = isReadOnly,
                             isCascadeMode = isCascadeMode,
                             onAddPage = { viewModel.insertPageBreak() },
+                            textFieldValue = editorTextFieldValue,
+                            onTextFieldValueChange = { viewModel.onTextFieldValueChange(it) },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
             }
         }
+    }
+
+    // --- Diálogo para Inserción de Imágenes con Ajuste de Hoja (Layout & Wrap) ---
+    if (showImageDialog) {
+        AlertDialog(
+            onDismissRequest = { showImageDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.Image,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Insertar Imagen con Ajuste", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Ajuste de Hoja (Layout & Wrap):",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf(
+                            "full" to "Ancho",
+                            "center" to "Centro",
+                            "left" to "Izq.",
+                            "right" to "Der."
+                        ).forEach { (mode, label) ->
+                            FilterChip(
+                                selected = imageWrapMode == mode,
+                                onClick = { imageWrapMode = mode },
+                                label = { Text(label, fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = imageUrlInput,
+                        onValueChange = { imageUrlInput = it },
+                        label = { Text("URL o ruta de la imagen") },
+                        placeholder = { Text("https://ejemplo.com/grafico.png") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = imageCaptionInput,
+                        onValueChange = { imageCaptionInput = it },
+                        label = { Text("Pie de foto (opcional)") },
+                        placeholder = { Text("Ej: Figura 1. Esquema conceptual") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val finalUrl = imageUrlInput.trim().ifEmpty {
+                            "https://images.unsplash.com/photo-1455390582262-044cdead277a?w=800"
+                        }
+                        viewModel.insertImage(
+                            uri = finalUrl,
+                            wrapMode = imageWrapMode,
+                            caption = imageCaptionInput.trim()
+                        )
+                        showImageDialog = false
+                    }
+                ) {
+                    Text("Insertar en Hoja", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImageDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // Diálogo interactivo táctil para Configurar e Insertar Tablas Editoriales
+    if (showTableDialog) {
+        TableInsertDialog(
+            onDismiss = { showTableDialog = false },
+            onConfirm = { rows, cols, hasHeader, style ->
+                viewModel.insertTable(
+                    rows = rows,
+                    cols = cols,
+                    hasHeader = hasHeader,
+                    style = style
+                )
+                showTableDialog = false
+            }
+        )
     }
 }
 

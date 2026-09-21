@@ -33,6 +33,7 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 
 ```
 /
+├── build_rust.sh                        # Script automatizado de compilación cruzada Rust para 4 ABIs NDK
 ├── rust-core/                           # Núcleo de Alto Rendimiento en Rust (Edición 2021)
 │   ├── Cargo.toml                       # Dependencias: cxx, serde, serde_json y perfiles de compilación
 │   └── src/
@@ -43,9 +44,15 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 │
 ├── app/
 │   ├── src/main/cpp/                    # Núcleo Tipográfico y de Medición en C++20
-│   │   ├── CMakeLists.txt               # Configuración CMake estándar C++20 estricto
+│   │   ├── CMakeLists.txt               # Configuración CMake estándar C++20 estricto y enlace libdocusheet_rust
 │   │   ├── docusheet_core.hpp           # Cabecera C++20 con conceptos, métricas de hoja y clases
-│   │   └── docusheet_core.cpp           # Implementación del motor tipográfico y llamadas JNI
+│   │   └── docusheet_core.cpp           # Motor tipográfico, cálculo de tablas y llamadas JNI
+│   │
+│   ├── src/main/jniLibs/                # Binarios compartidos compilados de Rust para las 4 arquitecturas
+│   │   ├── arm64-v8a/libdocusheet_rust.so
+│   │   ├── armeabi-v7a/libdocusheet_rust.so
+│   │   ├── x86/libdocusheet_rust.so
+│   │   └── x86_64/libdocusheet_rust.so
 │   │
 │   └── src/main/java/com/example/
 │       ├── MainActivity.kt              # Punto de entrada de la app, activa Edge-to-Edge y carga NavGraph
@@ -57,19 +64,23 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 │       │   └── DocumentRepository.kt    # Repositorio que aísla las operaciones de base de datos en Dispatchers.IO
 │       │
 │       ├── ui/
-│       │   ├── DocumentViewModel.kt     # Gestor de estado: historial deshacer/rehacer, autoguardado, formato y métricas
+│       │   ├── DocumentViewModel.kt     # Gestor de estado: deshacer/rehacer, inserción de tablas, autoguardado y métricas
 │       │   │
 │       │   ├── components/              # Componentes visuales reutilizables
-│       │   │   └── PaperSheet.kt        # Lienzo de hoja de papel, soporte de Cascada Continua (Múltiples Hojas), reglas y guías
+│       │   │   ├── PaperSheet.kt        # Lienzo de hoja de papel, Cascada Continua, reglas, guías y parser de bloques
+│       │   │   ├── TableSheetBlock.kt   # Renderizador físico de tablas y cuadrículas editoriales sobre la hoja
+│       │   │   ├── TableInsertDialog.kt # Diálogo táctil de configuración e inserción de tablas
+│       │   │   └── DocuSheetSelectionToolbar.kt # Barra contextual estilo PC (reemplazo del selector del fabricante) y paleta de tinta
 │       │   │
 │       │   ├── navigation/              # Capa de Navegación
 │       │   │   └── NavGraph.kt          # Grafo central con rutas: documents, editor, settings, about
 │       │   │
 │       │   ├── screens/                 # Pantallas completas de la aplicación
-│       │   │   ├── DocumentListScreen.kt# Biblioteca de documentos, miniaturas de hojas y plantillas
+│       │   │   ├── DocumentListScreen.kt# Biblioteca de documentos, selector de PDFs externos, miniaturas y plantillas
 │       │   │   ├── DocumentEditorScreen.kt # Pantalla del editor con barra de herramientas, exportación y cascada
 │       │   │   ├── DocumentSettingsScreen.kt # Ajustes de papel (texturas, fuentes Serif/Sans/Mono/Cursive)
-│       │   │   └── AboutScreen.kt       # Centro de Métricas Detalladas, anillo de progreso y Gráficas
+│       │   │   ├── AboutScreen.kt       # Centro de Métricas Detalladas, anillo de progreso y Gráficas
+│       │   │   └── PdfViewerScreen.kt   # Visor nativo de PDF de alta resolución con zoom táctil y estética de hoja
 │       │   │
 │       │   └── theme/                   # Sistema de Diseño y Tokens
 │       │       ├── Color.kt             # Paleta de colores M3
@@ -77,12 +88,12 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 │       │       └── Type.kt              # Jerarquía tipográfica base
 │       │
 │       └── util/
-│           ├── DocumentExporter.kt      # Generación de archivos PDF multipágina (A4) y Markdown (.md)
+│           ├── DocumentExporter.kt      # Generación de PDF (A4), Markdown (.md), HTML Editorial y Texto Plano (.txt)
 │           └── NativeEngineBridge.kt    # Puente seguro de carga JNI para 'docusheet_core'
 │
 └── res/
     ├── xml/
-    │   └── file_paths.xml               # Rutas autorizadas para FileProvider para compartir PDF y MD
+    │   └── file_paths.xml               # Rutas autorizadas para FileProvider para compartir PDF, MD, HTML y TXT
     ├── drawable/                        # Recursos gráficos vectoriales (ic_doc_logo, launcher)
     └── values/strings.xml               # Textos de la aplicación en español
 ```
@@ -101,11 +112,59 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 | `fontSize` | `Int` | Tamaño de letra en SP (14 a 24) |
 | `lineSpacing` | `Float` | Interlineado multiplicador (1.2f, 1.5f, 2.0f) |
 | `marginStyle` | `String` | Márgenes de la hoja: `NARROW`, `NORMAL`, `WIDE` |
+| `alignment` | `String` | Alineación base del documento: `LEFT`, `CENTER`, `RIGHT`, `JUSTIFY` |
 | `createdAt` | `Long` | Timestamp de creación en milisegundos |
 | `updatedAt` | `Long` | Timestamp de última modificación |
+
+---
+
+## 🎨 Sistema de Formateo y Renderizado de PC (PaperSheet & Native)
+
+DocuSheet incorpora un procesador híbrido de sintaxis enriquecida adaptado a hojas físicas:
+
+1. **Alineación de Párrafos Cuádruple con Justificado Real**:
+   - Directivas por párrafo: `[align:left]`, `[align:center]`, `[align:right]`, `[align:justify]`.
+   - Propiedad global en `DocumentEntity.alignment`.
+   - Cálculo JNI en C++20 (`compute_justified_spacing`) que determina la distribución proporcional de espacios para simular tipografía editorial de libro.
+2. **Tipografía Dinámica Inline y Global**:
+   - `[font:serif]`, `[font:sans]`, `[font:mono]`, `[font:cursive]`.
+   - Modificación instantánea de fragmentos de texto o de la hoja entera.
+3. **Formatos Enriquecidos**:
+   - Subrayado (`<u>...</u>`, `__...__`)
+   - Tachado (`~~...~~`, `<s>...</s>`)
+   - Subíndice (`<sub>...</sub>`) con escalado `0.75x` y traslación vertical positiva.
+   - Superíndice (`<sup>...</sup>`) con escalado `0.75x` y traslación vertical negativa.
+4. **Inserción de Imágenes con Ajuste de Hoja (Layout & Wrap)**:
+   - Sintaxis: `![wrap:full](url "pie de foto")`, `![wrap:center](url)`, `![wrap:left](url)`, `![wrap:right](url)`.
+   - Renderizado asíncrono con Coil (`AsyncImage`) integrado con sombras, bordes de papel y pie de figura.
+   - Algoritmo de altura matemática en Rust (`pagination.rs`) que evita el desbordamiento de las hojas.
+5. **Selector Contextual Estilo PC, Modos Mover e Intercambiar y Paleta de Colores (`DocuSheetSelectionToolbar.kt`)**:
+   - `DocuSheetDisabledSystemToolbar`: Silencia el menú contextual flotante del fabricante del teléfono (`LocalTextToolbar`).
+   - `DocuSheetPcSelectionBar`: Barra flotante estilo procesador de PC que surge al existir texto seleccionado (`!textFieldValue.selection.collapsed`) o cuando hay un bloque marcado para intercambio.
+   - Operaciones de portapapeles de PC: Copiar, Cortar, Pegar, Seleccionar Todo.
+   - Modo Intercambiar (Swap A ⇄ B): Fijación de Bloque A en estado reactivo (`MarkedSwapBlock`), selección de Bloque B distante y transposición atómica bidireccional. Incluye botones dedicados para swap rápido de párrafo arriba/abajo (`swapParagraphUp`, `swapParagraphDown`) e intercambio con portapapeles.
+   - Modo Mover (Move / Drag): Botones de acción directa y menú para reubicar fragmentos al inicio (`moveSelectionToStart`) o al final (`moveSelectionToEnd`) de la hoja de papel.
+   - Paleta de colores de tinta: Formateo con etiquetas `[color:#HEX]...[/color]` soportadas por el motor de renderizado `PaperSheet.kt`.
+   - Selector directo de fuente para la selección (`[font:serif|sans|mono|cursive]`).
+6. **Herramienta de Tablas y Cuadrículas Editoriales (`TableSheetBlock.kt` & `TableInsertDialog.kt`)**:
+   - Diálogo táctil accesible para configuración de dimensiones (1 a 10 filas, 1 a 6 columnas), interruptor de encabezado y selector de 4 acabados editoriales (Clásica, Editorial, Rayada, Compacta) con vista previa gráfica.
+   - Cálculo nativo en C++20 (`compute_table_layout`) para la distribución métrica armónica de anchos de columna sobre la hoja física A4 (ancho imprimible de ~480 pt).
+   - Renderizado en bloques independientes sobre la hoja de papel (`SheetBlock.Table`), respetando la familia tipográfica, el tamaño de letra e interlineado del documento.
+   - Sintaxis estructurada `[table:estilo]...[/table]` y compatibilidad universal con tablas Markdown estándar (`| celda | celda |`).
+7. **Motor Nativo de Manipulación de Texto (`TextManipulator` C++20 y Rust)**:
+   - Procesamiento de bajo nivel para transposiciones y desplazamientos de bloques sin recomposiciones pesadas.
+   - Algoritmo de permutación de 3 partes que reconstruye la cadena evitando fragmentación de memoria y manteniendo la coherencia de saltos de línea.
+   - Respaldo de seguridad (fallback) transparente en `NativeEngineBridge.kt`.
+8. **Visor Nativo de PDF e Integración "Abrir Con" (`PdfViewerScreen.kt` & `DocumentExporter.kt`)**:
+   - Integración a nivel de sistema mediante filtros de intención `ACTION_VIEW` y `ACTION_SEND` en `AndroidManifest.xml` (`application/pdf`).
+   - `MainActivity.kt` procesa y redirige el URI del documento hacia la pantalla modular `PdfViewerScreen`.
+   - Renderizado en alta definición 2x con `android.graphics.pdf.PdfRenderer` en hilos de fondo (`Dispatchers.IO`), con reciclaje de bitmaps en `DisposableEffect`.
+   - Estética idéntica a las hojas de DocuSheet, zoom gestual (pinch-to-zoom 0.75x a 3.5x), paneo, botones de escala y botón de compartir.
+   - Exportador extendido a **HTML Editorial Estructurado** (con estilos CSS integrados para lectura tipo libro) y **Texto Plano (.txt)** para interoperabilidad total.
 
 ---
 
 ## 🔒 Protección Tipográfica del Sistema
 
 En `Theme.kt`, la aplicación encapsula el árbol de componentes dentro de un `CompositionLocalProvider` que suministra una instancia de `Density` con `fontScale = 1.0f`. Esto impide que los ajustes de accesibilidad de fuente del sistema operativo Android deformen la proporción calculada de la hoja, la regla o las barras de herramientas.
+Requisito mínimo de sistema operativo: **Android 9.0 (API 28 - Pie)**.

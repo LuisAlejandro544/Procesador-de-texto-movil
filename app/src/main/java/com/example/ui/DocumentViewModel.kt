@@ -1,6 +1,8 @@
 package com.example.ui
 
 import android.app.Application
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
@@ -16,9 +18,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.example.util.NativeEngineBridge
+import com.example.util.TextOperationResult
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/**
+ * Bloque fijado temporalmente para la operación de Intercambio de 2 bloques (Swap A ⇄ B).
+ */
+data class MarkedSwapBlock(
+    val text: String,
+    val start: Int,
+    val end: Int
+)
 
 /**
  * DocumentViewModel: Administrador de estado y lógica de negocio para el procesador de texto.
@@ -46,6 +59,10 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     // Contenido en edición en tiempo real
     private val _editorContent = MutableStateFlow("")
     val editorContent = _editorContent.asStateFlow()
+
+    // Estado del campo de texto con cursor y selección activa de PC
+    private val _editorTextFieldValue = MutableStateFlow(TextFieldValue(""))
+    val editorTextFieldValue = _editorTextFieldValue.asStateFlow()
 
     // Título en edición en tiempo real
     private val _editorTitle = MutableStateFlow("")
@@ -78,6 +95,18 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     val canUndo = _canUndo.asStateFlow()
     private val _canRedo = MutableStateFlow(false)
     val canRedo = _canRedo.asStateFlow()
+
+    // Bloque marcado para intercambio entre 2 selecciones (Swap Bloque A ⇄ Bloque B)
+    private val _markedSwapBlock = MutableStateFlow<MarkedSwapBlock?>(null)
+    val markedSwapBlock = _markedSwapBlock.asStateFlow()
+
+    // Mensaje informativo temporal de operaciones de edición de PC
+    private val _userFeedbackMessage = MutableStateFlow<String?>(null)
+    val userFeedbackMessage = _userFeedbackMessage.asStateFlow()
+
+    fun clearFeedbackMessage() {
+        _userFeedbackMessage.value = null
+    }
 
     private var autoSaveJob: Job? = null
 
@@ -127,6 +156,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 _activeDocument.value = it
                 _editorTitle.value = it.title
                 _editorContent.value = it.content
+                _editorTextFieldValue.value = TextFieldValue(it.content, TextRange(it.content.length))
                 undoStack.clear()
                 redoStack.clear()
                 undoStack.add(it.content)
@@ -152,10 +182,254 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             }
 
             _editorContent.value = newContent
+            if (_editorTextFieldValue.value.text != newContent) {
+                _editorTextFieldValue.value = TextFieldValue(newContent, TextRange(newContent.length))
+            }
             _saveStatus.value = "Guardando..."
             scheduleAutoSave()
         }
     }
+
+    /**
+     * Actualiza el TextFieldValue manteniendo el cursor y la selección activa de PC.
+     */
+    fun onTextFieldValueChange(newValue: TextFieldValue) {
+        _editorTextFieldValue.value = newValue
+        if (newValue.text != _editorContent.value) {
+            onContentChanged(newValue.text)
+        }
+    }
+
+    /**
+     * Deselecciona el texto activo posicionando el cursor al final de la selección.
+     */
+     fun clearSelection() {
+         val current = _editorTextFieldValue.value
+         val cursor = current.selection.end
+         _editorTextFieldValue.value = current.copy(selection = TextRange(cursor))
+     }
+
+    // ==========================================================================
+    // Operaciones de Arrastrar/Mover e Intercambiar Texto (Modos estilo PC)
+    // ==========================================================================
+
+    /**
+     * Fija el tramo de texto actualmente seleccionado como "Bloque A" para intercambiarlo
+     * con una futura selección ("Bloque B").
+     */
+    fun markCurrentSelectionForSwap() {
+        val current = _editorTextFieldValue.value
+        val min = current.selection.min.coerceIn(0, current.text.length)
+        val max = current.selection.max.coerceIn(0, current.text.length)
+        if (min < max) {
+            val selected = current.text.substring(min, max)
+            _markedSwapBlock.value = MarkedSwapBlock(selected, min, max)
+            _userFeedbackMessage.value = "Bloque A fijado (${selected.length} letras). Selecciona el Bloque B para intercambiar."
+        } else {
+            _userFeedbackMessage.value = "Selecciona primero un texto para fijar como Bloque A."
+        }
+    }
+
+    /**
+     * Cancela la fijación del Bloque A para intercambio.
+     */
+    fun clearMarkedSwapBlock() {
+        _markedSwapBlock.value = null
+        _userFeedbackMessage.value = "Intercambio cancelado"
+    }
+
+    /**
+     * Ejecuta el intercambio atómico entre el Bloque A fijado y la selección actual (Bloque B).
+     */
+    fun executeSwapWithMarkedBlock(): Boolean {
+        val blockA = _markedSwapBlock.value ?: return false
+        val current = _editorTextFieldValue.value
+        val bStart = current.selection.min.coerceIn(0, current.text.length)
+        val bEnd = current.selection.max.coerceIn(0, current.text.length)
+
+        if (bStart == bEnd) {
+            _userFeedbackMessage.value = "Selecciona el segundo bloque de texto (Bloque B) para intercambiar."
+            return false
+        }
+
+        val result = NativeEngineBridge.swapTextRangesSafe(
+            fullText = current.text,
+            startA = blockA.start,
+            endA = blockA.end,
+            startB = bStart,
+            endB = bEnd
+        )
+
+        if (result.success) {
+            _markedSwapBlock.value = null
+            _editorTextFieldValue.value = TextFieldValue(
+                text = result.newText,
+                selection = TextRange(result.newSelectionStart, result.newSelectionEnd)
+            )
+            onContentChanged(result.newText)
+            _userFeedbackMessage.value = "¡Intercambio realizado con éxito!"
+            return true
+        } else {
+            _userFeedbackMessage.value = result.message
+            return false
+        }
+    }
+
+    /**
+     * Intercambia el párrafo actual donde está el cursor/selección con el párrafo anterior.
+     */
+    fun swapParagraphUp() {
+        val current = _editorTextFieldValue.value
+        val result = NativeEngineBridge.swapParagraphSafe(
+            fullText = current.text,
+            cursorStart = current.selection.min,
+            cursorEnd = current.selection.max,
+            swapUp = true
+        )
+        if (result.success) {
+            _editorTextFieldValue.value = TextFieldValue(
+                text = result.newText,
+                selection = TextRange(result.newSelectionStart, result.newSelectionEnd)
+            )
+            onContentChanged(result.newText)
+            _userFeedbackMessage.value = "Párrafo intercambiado con el anterior"
+        } else {
+            _userFeedbackMessage.value = result.message
+        }
+    }
+
+    /**
+     * Intercambia el párrafo actual donde está el cursor/selección con el párrafo posterior.
+     */
+    fun swapParagraphDown() {
+        val current = _editorTextFieldValue.value
+        val result = NativeEngineBridge.swapParagraphSafe(
+            fullText = current.text,
+            cursorStart = current.selection.min,
+            cursorEnd = current.selection.max,
+            swapUp = false
+        )
+        if (result.success) {
+            _editorTextFieldValue.value = TextFieldValue(
+                text = result.newText,
+                selection = TextRange(result.newSelectionStart, result.newSelectionEnd)
+            )
+            onContentChanged(result.newText)
+            _userFeedbackMessage.value = "Párrafo intercambiado con el siguiente"
+        } else {
+            _userFeedbackMessage.value = result.message
+        }
+    }
+
+    /**
+     * Mueve el texto seleccionado al inicio absoluto del documento.
+     */
+    fun moveSelectionToStart() {
+        val current = _editorTextFieldValue.value
+        val s = current.selection.min
+        val e = current.selection.max
+        if (s == e) {
+            _userFeedbackMessage.value = "Selecciona texto para mover al inicio"
+            return
+        }
+
+        val result = NativeEngineBridge.moveTextRangeSafe(
+            fullText = current.text,
+            start = s,
+            end = e,
+            targetPosition = 0
+        )
+        if (result.success) {
+            _editorTextFieldValue.value = TextFieldValue(
+                text = result.newText,
+                selection = TextRange(result.newSelectionStart, result.newSelectionEnd)
+            )
+            onContentChanged(result.newText)
+            _userFeedbackMessage.value = "Texto reubicado al inicio"
+        } else {
+            _userFeedbackMessage.value = result.message
+        }
+    }
+
+    /**
+     * Mueve el texto seleccionado al final absoluto del documento.
+     */
+    fun moveSelectionToEnd() {
+        val current = _editorTextFieldValue.value
+        val s = current.selection.min
+        val e = current.selection.max
+        if (s == e) {
+            _userFeedbackMessage.value = "Selecciona texto para mover al final"
+            return
+        }
+
+        val result = NativeEngineBridge.moveTextRangeSafe(
+            fullText = current.text,
+            start = s,
+            end = e,
+            targetPosition = current.text.length
+        )
+        if (result.success) {
+            _editorTextFieldValue.value = TextFieldValue(
+                text = result.newText,
+                selection = TextRange(result.newSelectionStart, result.newSelectionEnd)
+            )
+            onContentChanged(result.newText)
+            _userFeedbackMessage.value = "Texto reubicado al final"
+        } else {
+            _userFeedbackMessage.value = result.message
+        }
+    }
+
+    /**
+     * Mueve el texto seleccionado hacia una posición arbitraria (targetPosition).
+     */
+    fun moveSelectionToTarget(targetPosition: Int) {
+        val current = _editorTextFieldValue.value
+        val s = current.selection.min
+        val e = current.selection.max
+        if (s == e) return
+
+        val result = NativeEngineBridge.moveTextRangeSafe(
+            fullText = current.text,
+            start = s,
+            end = e,
+            targetPosition = targetPosition
+        )
+        if (result.success) {
+            _editorTextFieldValue.value = TextFieldValue(
+                text = result.newText,
+                selection = TextRange(result.newSelectionStart, result.newSelectionEnd)
+            )
+            onContentChanged(result.newText)
+            _userFeedbackMessage.value = "Texto reubicado en la nueva posición"
+        } else {
+            _userFeedbackMessage.value = result.message
+        }
+    }
+
+    /**
+     * Intercambia el texto seleccionado actualmente con el texto del portapapeles.
+     */
+    fun swapSelectionWithClipboard(clipboardText: String): String {
+        val current = _editorTextFieldValue.value
+        val min = current.selection.min.coerceIn(0, current.text.length)
+        val max = current.selection.max.coerceIn(0, current.text.length)
+        if (min == max) return ""
+
+        val originalSelected = current.text.substring(min, max)
+        val newText = current.text.replaceRange(min, max, clipboardText)
+        val newCursor = min + clipboardText.length
+
+        _editorTextFieldValue.value = TextFieldValue(
+            text = newText,
+            selection = TextRange(min, newCursor)
+        )
+        onContentChanged(newText)
+        _userFeedbackMessage.value = "Texto intercambiado con el portapapeles"
+        return originalSelected
+    }
+
 
     /**
      * Actualiza el título del documento e inicia guardado automático.
@@ -327,6 +601,170 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
+     * Aplica o inserta texto subrayado.
+     */
+    fun insertUnderline() {
+        val current = _editorContent.value
+        onContentChanged(current + "<u>texto subrayado</u>")
+    }
+
+    /**
+     * Aplica o inserta texto tachado.
+     */
+    fun insertStrikethrough() {
+        val current = _editorContent.value
+        onContentChanged(current + "~~texto tachado~~")
+    }
+
+    /**
+     * Inserta una notación con subíndice (ej. fórmulas químicas H2O).
+     */
+    fun insertSubscript() {
+        val current = _editorContent.value
+        onContentChanged(current + "<sub>2</sub>")
+    }
+
+    /**
+     * Inserta una notación con superíndice (ej. exponentes X2 o fechas 1ro).
+     */
+    fun insertSuperscript() {
+        val current = _editorContent.value
+        onContentChanged(current + "<sup>2</sup>")
+    }
+
+    /**
+     * Inserta una imagen con directiva de ajuste de hoja (Layout & Wrap).
+     * @param uri URI o ruta de la imagen local.
+     * @param wrapMode Modo de ajuste: "full" (ancho completo), "center" (centrada), "left" (izquierda), "right" (derecha).
+     * @param caption Pie de foto explicativo opcional.
+     */
+    fun insertImage(uri: String, wrapMode: String = "full", caption: String = "") {
+        val current = _editorContent.value
+        val prefix = if (current.isEmpty() || current.endsWith("\n")) "" else "\n"
+        val imageDirective = "\n![wrap:$wrapMode,$caption]($uri)\n"
+        onContentChanged(current + prefix + imageDirective)
+    }
+
+    /**
+     * Inserta una Tabla o Cuadrícula Editorial con formato estructurado compatible con Markdown.
+     * Soporta los estilos: "classic", "editorial", "striped", "compact".
+     * Calcula dinámicamente celdas, encabezados y posición del cursor.
+     */
+    fun insertTable(
+        rows: Int = 3,
+        cols: Int = 3,
+        hasHeader: Boolean = true,
+        style: String = "classic"
+    ) {
+        val safeRows = maxOf(1, minOf(15, rows))
+        val safeCols = maxOf(1, minOf(8, cols))
+        val sb = StringBuilder()
+
+        val currentVal = _editorTextFieldValue.value
+        val currentText = currentVal.text
+        val selStart = currentVal.selection.min
+        val selEnd = currentVal.selection.max
+
+        val prefix = if (selStart == 0 || (selStart > 0 && currentText[selStart - 1] == '\n')) "" else "\n"
+        sb.append(prefix)
+
+        // Etiqueta de estilo editorial si difiere del estándar
+        if (style != "classic") {
+            sb.append("[table:$style]\n")
+        }
+
+        // Fila de encabezados
+        if (hasHeader) {
+            sb.append("|")
+            for (c in 1..safeCols) {
+                sb.append(" Encabezado $c |")
+            }
+            sb.append("\n|")
+            for (c in 1..safeCols) {
+                sb.append("---|")
+            }
+            sb.append("\n")
+        }
+
+        // Filas de datos
+        for (r in 1..safeRows) {
+            sb.append("|")
+            for (c in 1..safeCols) {
+                sb.append(" Dato $r,$c |")
+            }
+            sb.append("\n")
+        }
+
+        if (style != "classic") {
+            sb.append("[/table]\n")
+        } else {
+            sb.append("\n")
+        }
+
+        val tableString = sb.toString()
+        val newText = if (selStart >= 0 && selEnd <= currentText.length) {
+            currentText.substring(0, selStart) + tableString + currentText.substring(selEnd)
+        } else {
+            currentText + tableString
+        }
+
+        val newCursor = (if (selStart >= 0) selStart else currentText.length) + tableString.length
+        onTextFieldValueChange(
+            TextFieldValue(
+                text = newText,
+                selection = androidx.compose.ui.text.TextRange(newCursor)
+            )
+        )
+    }
+
+    /**
+     * Inserta un bloque con alineación de párrafo específica (Izquierda, Centrado, Derecha, Justificado).
+     */
+    fun insertAlignmentBlock(alignment: String) {
+        val current = _editorContent.value
+        val prefix = if (current.isEmpty() || current.endsWith("\n")) "" else "\n"
+        val alignLower = alignment.lowercase()
+        onContentChanged(current + prefix + "[align:$alignLower]Párrafo con alineación $alignLower...[/align]\n")
+    }
+
+    /** Alias conveniente para insertAlignmentBlock */
+    fun insertAlignmentTag(alignment: String) = insertAlignmentBlock(alignment)
+
+    /**
+     * Inserta un tramo de texto con una tipografía específica (serif, sans, mono, cursive).
+     */
+    fun insertFontBlock(fontStyle: String) {
+        val current = _editorContent.value
+        val fontLower = when (fontStyle.uppercase()) {
+            "SANS_SERIF" -> "sans"
+            "MONOSPACE" -> "mono"
+            "CURSIVE" -> "cursive"
+            else -> "serif"
+        }
+        onContentChanged(current + "[font:$fontLower]Texto en tipografía $fontLower[/font]")
+    }
+
+    /** Alias conveniente para insertFontBlock */
+    fun insertFontTag(fontStyle: String) = insertFontBlock(fontStyle)
+
+    /**
+     * Actualiza la alineación predeterminada de todo el documento (Alineación Cuádruple).
+     */
+    fun updateGlobalAlignment(newAlignment: String) {
+        updatePageSettings(alignment = newAlignment)
+    }
+
+    /** Alias conveniente para updateGlobalAlignment */
+    fun setGlobalAlignment(newAlignment: String) = updateGlobalAlignment(newAlignment)
+
+    /**
+     * Actualiza la tipografía global predeterminada de todo el documento.
+     */
+    fun updateGlobalFont(newFont: String) {
+        updatePageSettings(fontStyle = newFont)
+    }
+
+    /**
      * Inserta un salto de página físico explícito.
      */
     fun insertPageBreak() {
@@ -374,14 +812,15 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Actualiza la configuración de estilo de la hoja (papel, fuente, tamaño, interlineado, margen).
+     * Actualiza la configuración de estilo de la hoja (papel, fuente, tamaño, interlineado, margen, alineación).
      */
     fun updatePageSettings(
         paperType: String? = null,
         fontStyle: String? = null,
         fontSize: Int? = null,
         lineSpacing: Float? = null,
-        marginStyle: String? = null
+        marginStyle: String? = null,
+        alignment: String? = null
     ) {
         val current = _activeDocument.value ?: return
         val updated = current.copy(
@@ -390,6 +829,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             fontSize = fontSize ?: current.fontSize,
             lineSpacing = lineSpacing ?: current.lineSpacing,
             marginStyle = marginStyle ?: current.marginStyle,
+            alignment = alignment ?: current.alignment,
             updatedAt = System.currentTimeMillis()
         )
         _activeDocument.value = updated
@@ -411,6 +851,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 fontSize = 16,
                 lineSpacing = 1.5f,
                 marginStyle = "NORMAL",
+                alignment = "JUSTIFY",
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis()
             )
