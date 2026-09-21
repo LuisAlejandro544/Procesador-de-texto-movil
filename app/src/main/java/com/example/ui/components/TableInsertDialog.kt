@@ -210,24 +210,53 @@ fun TableInsertDialog(
                     }
                 }
 
-                // Vista Previa en Miniatura
-                Text(
-                    text = "Vista Previa: $cols columnas × $rows filas (${styles.first { it.id == selectedStyle }.title})",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center
-                )
+                // Vista Previa Clara y Realista sobre Hoja Física
+                val styleTitle = styles.first { it.id == selectedStyle }.title
+                val totalCells = cols * rows
+                
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Vista Previa en Hoja:",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "$cols col × $rows fil ($totalCells celdas) • $styleTitle",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
 
-                // Mini cuadrícula gráfica
-                MiniGridPreview(
-                    cols = cols,
-                    rows = minOf(4, rows),
-                    hasHeader = hasHeader,
-                    style = selectedStyle
-                )
+                        // Cuadrícula gráfica interactiva de alta legibilidad
+                        TableLiveSheetPreview(
+                            cols = cols,
+                            rows = minOf(3, rows),
+                            hasHeader = hasHeader,
+                            style = selectedStyle
+                        )
+
+                        Text(
+                            text = if (rows > 3) "Mostrando primeras 3 filas en vista previa de la hoja." else "Las celdas generadas son editables con texto enriquecido en la hoja.",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -235,7 +264,7 @@ fun TableInsertDialog(
                 onClick = { onConfirm(rows, cols, hasHeader, selectedStyle) },
                 modifier = Modifier.testTag("btn_confirm_insert_table")
             ) {
-                Text("Insertar en Hoja")
+                Text("Insertar en Hoja", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
@@ -302,61 +331,101 @@ private fun NumberSelectorRow(
     }
 }
 
+/**
+ * Renderizador de vista previa nítida de la tabla física con contenido de muestra legible.
+ */
 @Composable
-private fun MiniGridPreview(
+private fun TableLiveSheetPreview(
     cols: Int,
     rows: Int,
     hasHeader: Boolean,
     style: String
 ) {
-    val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+    val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+    val paperColor = Color(0xFFFAF8F5) // Simulación de papel marfil claro
+    val cellPadding = if (style == "compact") 4.dp else 7.dp
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .clip(RoundedCornerShape(4.dp))
-            .border(
-                width = if (style == "editorial") 0.dp else 1.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(4.dp)
-            )
-            .padding(2.dp),
-        verticalArrangement = Arrangement.SpaceEvenly
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = paperColor,
+        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor.copy(alpha = 0.4f)),
+        shadowElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        for (r in 0 until rows) {
-            val isHeaderRow = r == 0 && hasHeader
-            val isEven = r % 2 == 0
-            val rowBg = when {
-                isHeaderRow -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                style == "striped" && isEven -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                else -> Color.Transparent
-            }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(6.dp)
+                .then(
+                    if (style != "editorial") {
+                        Modifier.border(1.dp, borderColor, RoundedCornerShape(4.dp))
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
+            for (r in 0 until rows) {
+                val isHeaderRow = (r == 0 && hasHeader)
+                val isEven = (r % 2 == 0)
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .background(rowBg)
-                    .then(
-                        if (isHeaderRow && style == "editorial") {
-                            Modifier.border(1.dp, MaterialTheme.colorScheme.primary)
-                        } else if (r < rows - 1 && style != "editorial") {
-                            Modifier.border(0.5.dp, borderColor.copy(alpha = 0.3f))
-                        } else Modifier
-                    ),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                for (c in 0 until cols) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .then(
-                                if (c < cols - 1 && style != "editorial") {
-                                    Modifier.border(0.5.dp, borderColor.copy(alpha = 0.3f))
-                                } else Modifier
+                val rowBg = when {
+                    isHeaderRow -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    style == "striped" && isEven -> Color(0xFFE2E8F0).copy(alpha = 0.5f)
+                    else -> Color.Transparent
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(rowBg)
+                        .then(
+                            when {
+                                isHeaderRow && style == "editorial" -> Modifier.border(
+                                    width = 1.5.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                r < rows - 1 && style == "editorial" -> Modifier.border(
+                                    width = 0.8.dp,
+                                    color = borderColor.copy(alpha = 0.4f)
+                                )
+                                r < rows - 1 -> Modifier.border(
+                                    width = 0.5.dp,
+                                    color = borderColor
+                                )
+                                else -> Modifier
+                            }
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    for (c in 0 until cols) {
+                        val cellText = if (isHeaderRow) "Col ${c + 1}" else "Dato ${r + 1},${c + 1}"
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .then(
+                                    if (c < cols - 1 && style != "editorial") {
+                                        Modifier.border(0.5.dp, borderColor)
+                                    } else Modifier
+                                )
+                                .padding(vertical = cellPadding, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = cellText,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontSize = if (style == "compact") 9.sp else 10.5.sp,
+                                    fontWeight = if (isHeaderRow) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isHeaderRow) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        Color(0xFF1E293B)
+                                    },
+                                    textAlign = TextAlign.Center
+                                ),
+                                maxLines = 1
                             )
-                    )
+                        }
+                    }
                 }
             }
         }

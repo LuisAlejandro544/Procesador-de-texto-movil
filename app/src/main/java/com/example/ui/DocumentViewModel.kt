@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.util.NativeEngineBridge
 import com.example.util.TextOperationResult
 import com.example.util.DocuSheetCacheManager
@@ -196,6 +197,29 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 _canUndo.value = false
                 _canRedo.value = false
                 _saveStatus.value = "Guardado"
+
+                // Detección y migración automática de imágenes temporales content:// a almacenamiento privado permanente
+                if (it.content.contains("content://")) {
+                    val contentUriRegex = Regex("""!\[([^\]]*)\]\((content://[^)]+)\)""")
+                    val matches = contentUriRegex.findAll(it.content).toList()
+                    if (matches.isNotEmpty()) {
+                        var migratedContent = it.content
+                        for (match in matches) {
+                            val rawUri = match.groupValues[2]
+                            try {
+                                val permanentPath = DocuSheetCacheManager.saveImageFromUri(getApplication(), android.net.Uri.parse(rawUri))
+                                if (permanentPath != null) {
+                                    migratedContent = migratedContent.replace(rawUri, permanentPath)
+                                }
+                            } catch (_: Exception) {}
+                        }
+                        if (migratedContent != it.content) {
+                            _editorContent.value = migratedContent
+                            _editorTextFieldValue.value = TextFieldValue(migratedContent, TextRange(migratedContent.length))
+                            saveCurrentDocumentInternal()
+                        }
+                    }
+                }
             }
         }
     }
@@ -672,10 +696,38 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
      * @param caption Pie de foto explicativo opcional.
      */
     fun insertImage(uri: String, wrapMode: String = "full", caption: String = "") {
-        val current = _editorContent.value
-        val prefix = if (current.isEmpty() || current.endsWith("\n")) "" else "\n"
-        val imageDirective = "\n![wrap:$wrapMode,$caption]($uri)\n"
-        onContentChanged(current + prefix + imageDirective)
+        val tfv = _editorTextFieldValue.value
+        val current = tfv.text
+        val selStart = tfv.selection.min.coerceIn(0, current.length)
+        val selEnd = tfv.selection.max.coerceIn(0, current.length)
+
+        val prefix = if (selStart == 0 || (selStart > 0 && current[selStart - 1] == '\n')) "" else "\n"
+        val suffix = if (selEnd < current.length && current[selEnd] == '\n') "" else "\n"
+        val imageDirective = "$prefix![wrap:$wrapMode,$caption]($uri)$suffix"
+
+        val newText = current.substring(0, selStart) + imageDirective + current.substring(selEnd)
+        val newCursor = selStart + imageDirective.length
+        onTextFieldValueChange(TextFieldValue(newText, TextRange(newCursor)))
+        saveImmediately()
+
+        // Si la URI es un content:// de Android, migrarlo inmediatamente a un archivo permanente en almacenamiento privado
+        if (uri.startsWith("content://")) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val permanentPath = DocuSheetCacheManager.saveImageFromUri(getApplication(), android.net.Uri.parse(uri))
+                    if (permanentPath != null) {
+                        val latest = _editorContent.value
+                        val updated = latest.replace(uri, permanentPath)
+                        if (updated != latest) {
+                            withContext(Dispatchers.Main) {
+                                onContentChanged(updated)
+                                saveImmediately()
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     /**
@@ -752,12 +804,47 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
 
     /**
      * Inserta un bloque con alineación de párrafo específica (Izquierda, Centrado, Derecha, Justificado).
+     * Si hay texto seleccionado, lo envuelve con [align:x]...[/align].
+     * Si no hay texto seleccionado, envuelve la línea actual alrededor del cursor.
      */
     fun insertAlignmentBlock(alignment: String) {
-        val current = _editorContent.value
-        val prefix = if (current.isEmpty() || current.endsWith("\n")) "" else "\n"
-        val alignLower = alignment.lowercase()
-        onContentChanged(current + prefix + "[align:$alignLower]Párrafo con alineación $alignLower...[/align]\n")
+        val alignLower = when (alignment.lowercase()) {
+            "center", "centrado" -> "center"
+            "right", "derecha" -> "right"
+            "justify", "justificado" -> "justify"
+            else -> "left"
+        }
+        val tfv = _editorTextFieldValue.value
+        val text = tfv.text
+        val sel = tfv.selection
+
+        val openTag = "[align:$alignLower]"
+        val closeTag = "[/align]"
+
+        if (sel.min != sel.max) {
+            val min = sel.min.coerceIn(0, text.length)
+            val max = sel.max.coerceIn(0, text.length)
+            val selected = text.substring(min, max)
+            val newText = text.substring(0, min) + openTag + selected + closeTag + text.substring(max)
+            val newCursor = min + openTag.length + selected.length + closeTag.length
+            onTextFieldValueChange(TextFieldValue(newText, TextRange(newCursor)))
+        } else {
+            val cursor = sel.start.coerceIn(0, text.length)
+            val lineStart = text.lastIndexOf('\n', (cursor - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
+            val lineEnd = text.indexOf('\n', cursor).let { if (it == -1) text.length else it }
+            val currentLine = text.substring(lineStart, lineEnd)
+
+            if (currentLine.isNotBlank()) {
+                val newText = text.substring(0, lineStart) + openTag + currentLine + closeTag + text.substring(lineEnd)
+                val newCursor = lineStart + openTag.length + currentLine.length + closeTag.length
+                onTextFieldValueChange(TextFieldValue(newText, TextRange(newCursor)))
+            } else {
+                val newText = text.substring(0, cursor) + openTag + closeTag + text.substring(cursor)
+                val newCursor = cursor + openTag.length
+                onTextFieldValueChange(TextFieldValue(newText, TextRange(newCursor)))
+            }
+        }
+        saveImmediately()
     }
 
     /** Alias conveniente para insertAlignmentBlock */
@@ -765,16 +852,37 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
 
     /**
      * Inserta un tramo de texto con una tipografía específica (serif, sans, mono, cursive).
+     * Si hay texto seleccionado, lo envuelve con [font:x]...[/font].
+     * Si no hay texto seleccionado, inserta las etiquetas con el cursor posicionado en su interior.
      */
     fun insertFontBlock(fontStyle: String) {
-        val current = _editorContent.value
         val fontLower = when (fontStyle.uppercase()) {
-            "SANS_SERIF" -> "sans"
-            "MONOSPACE" -> "mono"
+            "SANS_SERIF", "SANS" -> "sans"
+            "MONOSPACE", "MONO" -> "mono"
             "CURSIVE" -> "cursive"
             else -> "serif"
         }
-        onContentChanged(current + "[font:$fontLower]Texto en tipografía $fontLower[/font]")
+        val tfv = _editorTextFieldValue.value
+        val text = tfv.text
+        val sel = tfv.selection
+
+        val openTag = "[font:$fontLower]"
+        val closeTag = "[/font]"
+
+        if (sel.min != sel.max) {
+            val min = sel.min.coerceIn(0, text.length)
+            val max = sel.max.coerceIn(0, text.length)
+            val selected = text.substring(min, max)
+            val newText = text.substring(0, min) + openTag + selected + closeTag + text.substring(max)
+            val newCursor = min + openTag.length + selected.length + closeTag.length
+            onTextFieldValueChange(TextFieldValue(newText, TextRange(newCursor)))
+        } else {
+            val cursor = sel.start.coerceIn(0, text.length)
+            val newText = text.substring(0, cursor) + openTag + closeTag + text.substring(cursor)
+            val newCursor = cursor + openTag.length
+            onTextFieldValueChange(TextFieldValue(newText, TextRange(newCursor)))
+        }
+        saveImmediately()
     }
 
     /** Alias conveniente para insertFontBlock */

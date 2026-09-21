@@ -90,8 +90,13 @@ object DocuSheetCacheManager {
     }
 
     /**
-     * Guarda y comprime de forma segura una imagen seleccionada de la galería en el directorio local de DocuSheet.
-     * Retorna la ruta absoluta del archivo local generado.
+     * Guarda y optimiza de forma permanente una imagen seleccionada de la galería en el almacenamiento
+     * interno privado de DocuSheet (filesDir/doc_images).
+     * 
+     * Ventajas:
+     * - Utiliza una única apertura de stream para garantizar compatibilidad con todos los proveedores de contenido (Photo Picker, Google Fotos, etc.).
+     * - Protege la imagen de expiración de URI temporal de Android.
+     * - Retorna la ruta absoluta local en el dispositivo.
      */
     suspend fun saveImageFromUri(context: Context, sourceUri: Uri): String? {
         return withContext(Dispatchers.IO) {
@@ -101,41 +106,52 @@ object DocuSheetCacheManager {
                 val fileName = "docusheet_img_${System.currentTimeMillis()}_$uniqueId.jpg"
                 val destinationFile = File(imagesDir, fileName)
 
-                // 1. Decodificar dimensiones para evitar OutOfMemory en fotos de alta resolución del teléfono
-                val options = BitmapFactory.Options().apply {
-                    inJustDecodeBounds = true
-                }
-                context.contentResolver.openInputStream(sourceUri)?.use { stream ->
-                    BitmapFactory.decodeStream(stream, null, options)
-                }
+                // 1. Copiar directamente los bytes del ContentProvider al archivo local en almacenamiento privado
+                val streamOpened = context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
+                    FileOutputStream(destinationFile).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                    true
+                } ?: false
 
-                val originalWidth = options.outWidth
-                val originalHeight = options.outHeight
-                if (originalWidth <= 0 || originalHeight <= 0) return@withContext null
-
-                // 2. Calcular factor de escala (inSampleSize)
-                var sampleSize = 1
-                while ((originalWidth / sampleSize) > MAX_IMAGE_DIMENSION || (originalHeight / sampleSize) > MAX_IMAGE_DIMENSION) {
-                    sampleSize *= 2
+                if (!streamOpened || !destinationFile.exists() || destinationFile.length() == 0L) {
+                    destinationFile.delete()
+                    return@withContext null
                 }
 
-                // 3. Decodificar bitmap optimizado
-                val decodeOptions = BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                // 2. Si la foto es gigante (> 4 MB), decodificarla y optimizarla a tamaño balanceado
+                if (destinationFile.length() > 4L * 1024 * 1024) {
+                    try {
+                        val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(destinationFile.absolutePath, boundsOpts)
+                        var sampleSize = 1
+                        while ((boundsOpts.outWidth / sampleSize) > MAX_IMAGE_DIMENSION || (boundsOpts.outHeight / sampleSize) > MAX_IMAGE_DIMENSION) {
+                            sampleSize *= 2
+                        }
+                        if (sampleSize > 1) {
+                            val decodeOpts = BitmapFactory.Options().apply {
+                                inSampleSize = sampleSize
+                                inPreferredConfig = Bitmap.Config.ARGB_8888
+                            }
+                            val sampledBitmap = BitmapFactory.decodeFile(destinationFile.absolutePath, decodeOpts)
+                            if (sampledBitmap != null) {
+                                val tempOptimized = File(imagesDir, "temp_$fileName")
+                                FileOutputStream(tempOptimized).use { out ->
+                                    sampledBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+                                }
+                                sampledBitmap.recycle()
+                                if (tempOptimized.exists() && tempOptimized.length() > 0) {
+                                    destinationFile.delete()
+                                    tempOptimized.renameTo(destinationFile)
+                                } else {
+                                    tempOptimized.delete()
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // Si falla la re-compresión, se mantiene el archivo original copiado
+                    }
                 }
-
-                val sampledBitmap: Bitmap? = context.contentResolver.openInputStream(sourceUri)?.use { stream ->
-                    BitmapFactory.decodeStream(stream, null, decodeOptions)
-                }
-
-                if (sampledBitmap == null) return@withContext null
-
-                // 4. Guardar comprimido en JPEG
-                FileOutputStream(destinationFile).use { outStream ->
-                    sampledBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, outStream)
-                }
-                sampledBitmap.recycle()
 
                 destinationFile.absolutePath
             } catch (e: Exception) {
@@ -218,13 +234,16 @@ object DocuSheetCacheManager {
             val imagesDir = File(context.filesDir, "doc_images")
             val files = imagesDir.listFiles() ?: emptyArray()
             val allContentsJoined = activeDocumentContents.joinToString("\n")
+            val now = System.currentTimeMillis()
+            val gracePeriodMillis = 2 * 60 * 60 * 1000L // 2 horas de gracia para borradores en curso
             var freedBytes = 0L
 
             for (file in files) {
                 val fileName = file.name
                 val filePath = file.absolutePath
                 val isReferenced = allContentsJoined.contains(fileName) || allContentsJoined.contains(filePath)
-                if (!isReferenced) {
+                val isRecent = (now - file.lastModified()) < gracePeriodMillis
+                if (!isReferenced && !isRecent) {
                     val len = file.length()
                     if (file.delete()) {
                         freedBytes += len

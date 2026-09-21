@@ -197,6 +197,11 @@ fun DocumentEditorScreen(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
+            try {
+                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, flags)
+            } catch (_: Exception) {}
+
             isProcessingGalleryImage = true
             coroutineScope.launch(Dispatchers.IO) {
                 val savedFilePath = DocuSheetCacheManager.saveImageFromUri(context, uri)
@@ -206,7 +211,7 @@ fun DocumentEditorScreen(
                         val file = File(savedFilePath)
                         selectedImageFile = file
                         imageUrlInput = savedFilePath
-                        Toast.makeText(context, "Imagen guardada en caché optimizada: ${CacheStats.formatBytes(file.length())}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Imagen guardada permanentemente: ${CacheStats.formatBytes(file.length())}", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "No se pudo procesar la imagen seleccionada", Toast.LENGTH_SHORT).show()
                     }
@@ -1127,7 +1132,8 @@ fun DocumentEditorScreen(
                         showImageDialog = false
                         imageUrlInput = ""
                         selectedImageFile = null
-                    }
+                    },
+                    enabled = !isProcessingGalleryImage
                 ) {
                     Text("Insertar en Hoja", fontWeight = FontWeight.Bold)
                 }
