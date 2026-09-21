@@ -1,20 +1,26 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -30,7 +36,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -41,6 +49,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.TextFieldValue
@@ -59,8 +68,20 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+/**
+ * Representa una porción o hoja física dentro del flujo global del documento en Cascada.
+ */
+data class PageSlice(
+    val index: Int,
+    val text: String,
+    val startOffset: Int,
+    val endOffset: Int
+)
 
 sealed class SheetBlock {
     data class Paragraph(val rawLine: String) : SheetBlock()
@@ -156,26 +177,52 @@ fun PaperSheet(
 
     if (isCascadeMode) {
         // --- Modo Cascada Continua (Múltiples Hojas de Papel) ---
-        val pages = remember(content) {
-            partitionIntoPages(content)
+        val pageSlices = remember(content) {
+            calculatePageSlices(content)
         }
-        val totalPages = pages.size
+        val totalPages = pageSlices.size
 
         Column(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            for (index in pages.indices) {
-                val pageContent = pages[index]
-                val pageNumber = index + 1
+            for (slice in pageSlices) {
+                val pageContent = slice.text
+                val pageNumber = slice.index + 1
+
+                // Sincronización atómica de selección y cursor entre la hoja local y el documento maestro
+                val currentGlobalTfv = textFieldValue ?: TextFieldValue(content)
+                val globalSel = currentGlobalTfv.selection
+
+                val pageTfv = remember(currentGlobalTfv, slice) {
+                    if (globalSel.collapsed) {
+                        if (globalSel.start in slice.startOffset..slice.endOffset) {
+                            val localCursor = (globalSel.start - slice.startOffset).coerceIn(0, pageContent.length)
+                            TextFieldValue(text = pageContent, selection = TextRange(localCursor))
+                        } else {
+                            TextFieldValue(text = pageContent, selection = TextRange.Zero)
+                        }
+                    } else {
+                        val selMin = globalSel.min
+                        val selMax = globalSel.max
+                        if (selMax > slice.startOffset && selMin < slice.endOffset) {
+                            val localStart = (selMin - slice.startOffset).coerceIn(0, pageContent.length)
+                            val localEnd = (selMax - slice.startOffset).coerceIn(0, pageContent.length)
+                            TextFieldValue(text = pageContent, selection = TextRange(localStart, localEnd))
+                        } else {
+                            TextFieldValue(text = pageContent, selection = TextRange.Zero)
+                        }
+                    }
+                }
 
                 SingleSheetCard(
                     pageText = pageContent,
                     onPageTextChange = { newPageText ->
-                        val updatedPages = pages.toMutableList()
-                        updatedPages[index] = newPageText
-                        onContentChange(joinPages(updatedPages))
+                        val before = content.substring(0, slice.startOffset.coerceAtMost(content.length))
+                        val after = content.substring(slice.endOffset.coerceAtMost(content.length))
+                        val newFullContent = before + newPageText + after
+                        onContentChange(newFullContent)
                     },
                     pageNumber = pageNumber,
                     totalPages = totalPages,
@@ -191,7 +238,28 @@ fun PaperSheet(
                     horizontalMargin = horizontalMargin,
                     isReadOnly = isReadOnly,
                     showRuler = (pageNumber == 1), // Regla principal en la primera hoja
-                    alignment = alignment
+                    alignment = alignment,
+                    textFieldValue = pageTfv,
+                    onTextFieldValueChange = { newPageTfv ->
+                        if (newPageTfv.text != pageContent) {
+                            val before = content.substring(0, slice.startOffset.coerceAtMost(content.length))
+                            val after = content.substring(slice.endOffset.coerceAtMost(content.length))
+                            val newFullContent = before + newPageTfv.text + after
+                            val newGlobalCursor = (slice.startOffset + newPageTfv.selection.start).coerceIn(0, newFullContent.length)
+                            val newTfv = TextFieldValue(text = newFullContent, selection = TextRange(newGlobalCursor))
+                            onTextFieldValueChange?.invoke(newTfv)
+                            onContentChange(newFullContent)
+                        } else {
+                            val localSel = newPageTfv.selection
+                            val newGlobalStart = (slice.startOffset + localSel.start).coerceIn(0, content.length)
+                            val newGlobalEnd = (slice.startOffset + localSel.end).coerceIn(0, content.length)
+                            val newTfv = currentGlobalTfv.copy(
+                                text = content,
+                                selection = TextRange(newGlobalStart, newGlobalEnd)
+                            )
+                            onTextFieldValueChange?.invoke(newTfv)
+                        }
+                    }
                 )
 
                 // Separador visual de escritorio entre hojas
@@ -249,8 +317,32 @@ fun PaperSheet(
 }
 
 /**
+ * Calcula los límites exactos de caracteres de cada hoja dentro del documento global,
+ * asegurando la sincronización atómica entre las hojas físicas y el TextFieldValue de PC.
+ */
+private fun calculatePageSlices(content: String): List<PageSlice> {
+    if (content.isEmpty()) return listOf(PageSlice(0, "", 0, 0))
+    val rawPages = partitionIntoPages(content)
+    val slices = mutableListOf<PageSlice>()
+    var searchStart = 0
+    for ((index, pText) in rawPages.withIndex()) {
+        val foundStart = if (pText.isNotEmpty()) {
+            val idx = content.indexOf(pText, startIndex = searchStart)
+            if (idx >= 0) idx else searchStart
+        } else {
+            searchStart
+        }
+        val foundEnd = (foundStart + pText.length).coerceAtMost(content.length)
+        slices.add(PageSlice(index, pText, foundStart, foundEnd))
+        searchStart = foundEnd
+    }
+    return if (slices.isEmpty()) listOf(PageSlice(0, "", 0, 0)) else slices
+}
+
+/**
  * Renderiza una hoja de papel individual completa (portada o subsiguiente) con todas sus guías y reglas.
  */
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun SingleSheetCard(
     pageText: String,
@@ -274,6 +366,10 @@ private fun SingleSheetCard(
     textFieldValue: TextFieldValue? = null,
     onTextFieldValueChange: ((TextFieldValue) -> Unit)? = null
 ) {
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
+    val isImeVisible = WindowInsets.isImeVisible
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -397,73 +493,65 @@ private fun SingleSheetCard(
                 // Modo Edición interactivo fluido con soporte de alineación cuádruple en vivo
                 // y selector del fabricante desactivado en favor del selector contextual propio de DocuSheet
                 CompositionLocalProvider(LocalTextToolbar provides remember { DocuSheetDisabledSystemToolbar() }) {
-                    if (textFieldValue != null && onTextFieldValueChange != null) {
-                        BasicTextField(
-                            value = textFieldValue,
-                            onValueChange = onTextFieldValueChange,
-                            textStyle = TextStyle(
-                                fontFamily = selectedFontFamily,
-                                fontSize = fontSize.sp,
-                                lineHeight = calculatedLineHeight,
-                                color = paperTextColor,
-                                fontWeight = FontWeight.Normal,
-                                textAlign = textAlignment
-                            ),
-                            cursorBrush = SolidColor(if (paperType == "DARK") Color(0xFF60A5FA) else Color(0xFF1D4ED8)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 450.dp)
-                                .testTag("paper_editor_field_$pageNumber"),
-                            decorationBox = { innerTextField ->
-                                if (textFieldValue.text.isEmpty()) {
-                                    Text(
-                                        text = "Escribe aquí tu texto...",
-                                        style = TextStyle(
-                                            fontFamily = selectedFontFamily,
-                                            fontSize = fontSize.sp,
-                                            lineHeight = calculatedLineHeight,
-                                            color = paperTextColor.copy(alpha = 0.35f),
-                                            textAlign = textAlignment
-                                        )
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        )
-                    } else {
-                        BasicTextField(
-                            value = pageText,
-                            onValueChange = onPageTextChange,
-                            textStyle = TextStyle(
-                                fontFamily = selectedFontFamily,
-                                fontSize = fontSize.sp,
-                                lineHeight = calculatedLineHeight,
-                                color = paperTextColor,
-                                fontWeight = FontWeight.Normal,
-                                textAlign = textAlignment
-                            ),
-                            cursorBrush = SolidColor(if (paperType == "DARK") Color(0xFF60A5FA) else Color(0xFF1D4ED8)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 450.dp)
-                                .testTag("paper_editor_field_$pageNumber"),
-                            decorationBox = { innerTextField ->
-                                if (pageText.isEmpty()) {
-                                    Text(
-                                        text = "Escribe aquí tu texto...",
-                                        style = TextStyle(
-                                            fontFamily = selectedFontFamily,
-                                            fontSize = fontSize.sp,
-                                            lineHeight = calculatedLineHeight,
-                                            color = paperTextColor.copy(alpha = 0.35f),
-                                            textAlign = textAlignment
-                                        )
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        )
+                    val effectiveTfv = textFieldValue ?: remember(pageText) { TextFieldValue(pageText) }
+                    val effectiveOnValueChange: (TextFieldValue) -> Unit = onTextFieldValueChange ?: { onPageTextChange(it.text) }
+
+                    // Cuando el teclado se abre y el cursor está activo en esta hoja, asegurar vista inmediata
+                    LaunchedEffect(isImeVisible) {
+                        if (isImeVisible && effectiveTfv.selection.start in 0..effectiveTfv.text.length) {
+                            delay(120)
+                            bringIntoViewRequester.bringIntoView()
+                        }
                     }
+
+                    BasicTextField(
+                        value = effectiveTfv,
+                        onValueChange = effectiveOnValueChange,
+                        textStyle = TextStyle(
+                            fontFamily = selectedFontFamily,
+                            fontSize = fontSize.sp,
+                            lineHeight = calculatedLineHeight,
+                            color = paperTextColor,
+                            fontWeight = FontWeight.Normal,
+                            textAlign = textAlignment
+                        ),
+                        cursorBrush = SolidColor(if (paperType == "DARK") Color(0xFF60A5FA) else Color(0xFF1D4ED8)),
+                        onTextLayout = { textLayoutResult ->
+                            val sel = effectiveTfv.selection
+                            if (sel.start in 0..effectiveTfv.text.length) {
+                                val cursorIndex = sel.start.coerceIn(0, effectiveTfv.text.length)
+                                val cursorRect = textLayoutResult.getCursorRect(cursorIndex)
+                                // Margen de confort visual vertical de 120px para no quedar nunca oculto bajo el teclado
+                                val comfortableRect = cursorRect.copy(
+                                    top = (cursorRect.top - 120f).coerceAtLeast(0f),
+                                    bottom = cursorRect.bottom + 120f
+                                )
+                                coroutineScope.launch {
+                                    bringIntoViewRequester.bringIntoView(comfortableRect)
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 450.dp)
+                            .bringIntoViewRequester(bringIntoViewRequester)
+                            .testTag("paper_editor_field_$pageNumber"),
+                        decorationBox = { innerTextField ->
+                            if (effectiveTfv.text.isEmpty()) {
+                                Text(
+                                    text = "Escribe aquí tu texto...",
+                                    style = TextStyle(
+                                        fontFamily = selectedFontFamily,
+                                        fontSize = fontSize.sp,
+                                        lineHeight = calculatedLineHeight,
+                                        color = paperTextColor.copy(alpha = 0.35f),
+                                        textAlign = textAlignment
+                                    )
+                                )
+                            }
+                            innerTextField()
+                        }
+                    )
                 }
             }
         }
