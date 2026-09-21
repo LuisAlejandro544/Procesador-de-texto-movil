@@ -25,9 +25,11 @@ import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.HistoryEdu
+import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material.icons.outlined.Speed
@@ -40,12 +42,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +83,11 @@ fun AboutScreen(
 ) {
     val documents by viewModel.allDocuments.collectAsStateWithLifecycle()
     val dailyGoal by viewModel.dailyGoalWords.collectAsStateWithLifecycle()
+    val cacheStats by viewModel.cacheStats.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshCacheStats()
+    }
 
     val totalDocs = documents.size
     val totalWords = documents.sumOf { viewModel.getWordCount(it.content) }
@@ -445,7 +454,82 @@ fun AboutScreen(
                 }
             }
 
-            // --- 5. Información del Proyecto ---
+            // --- 5. Gestión Inteligente de Memoria Caché y Almacenamiento ---
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.Memory,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Gestión Inteligente de Caché",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { viewModel.cleanCache() },
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.CleaningServices,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Liberar", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        StatCard(
+                            icon = Icons.Outlined.Storage,
+                            label = "Caché Total",
+                            value = cacheStats.totalCacheFormatted,
+                            modifier = Modifier.weight(1f)
+                        )
+                        StatCard(
+                            icon = Icons.Outlined.Description,
+                            label = "Imágenes en Caché",
+                            value = "${cacheStats.imagesFilesCount} imgs (${cacheStats.imagesCacheFormatted})",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "• Compresión inteligente: las fotos de la galería se optimizan a resolución balanceada al insertarse.\n• Política LRU: la memoria RAM usa un tope del 25% con reciclaje automático de mapas de bits.\n• Poda programada: los archivos temporales se limpian sin tocar tus documentos guardados.",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                }
+            }
+
+            // --- 6. Información del Proyecto ---
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                 shape = RoundedCornerShape(16.dp),

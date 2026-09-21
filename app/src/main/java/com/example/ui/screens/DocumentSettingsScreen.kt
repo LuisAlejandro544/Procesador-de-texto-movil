@@ -33,6 +33,10 @@ import androidx.compose.material.icons.outlined.FormatLineSpacing
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.Margin
 import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AspectRatio
+import androidx.compose.material.icons.outlined.Remove
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -42,9 +46,12 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -62,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.DocumentViewModel
+import com.example.util.PageFormat
 
 /**
  * DocumentSettingsScreen: Pantalla dedicada para configurar las propiedades de la hoja y el texto.
@@ -275,6 +283,161 @@ fun DocumentSettingsScreen(
                     isSelected = doc.paperType == "DARK",
                     onSelect = { viewModel.updatePageSettings(paperType = "DARK") }
                 )
+            }
+
+            // --- Sección: Formato de Hoja y Capacidad (Paginación Automática) ---
+            SettingsSectionHeader(
+                icon = Icons.Outlined.AspectRatio,
+                title = "Tamaño de Hoja y Paginación"
+            )
+
+            Text(
+                text = "Formato físico del papel:",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            )
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PageFormat.entries.forEach { format ->
+                    val isSelected = doc.pageSize == format.name
+                    Surface(
+                        modifier = Modifier
+                            .clickable { viewModel.updatePageFormat(format.name) }
+                            .border(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                shape = RoundedCornerShape(8.dp)
+                            ),
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = format.displayName,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                                if (isSelected) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Icon(
+                                        imageVector = Icons.Outlined.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "${format.dimensionsMm} • ~${format.defaultWordsLimit} pal.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Control de palabras por hoja
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Límite de palabras por hoja:",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = "${doc.wordsPerPage} palabras",
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Slider(
+                        value = doc.wordsPerPage.toFloat(),
+                        onValueChange = { viewModel.updateWordsPerPageLimit(it.toInt()) },
+                        valueRange = 100f..800f,
+                        steps = 13,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val current = doc.wordsPerPage
+                                    if (current > 100) viewModel.updateWordsPerPageLimit((current - 50).coerceAtLeast(100))
+                                },
+                                modifier = Modifier.height(32.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Icon(Icons.Outlined.Remove, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("50", fontSize = 11.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    val current = doc.wordsPerPage
+                                    if (current < 800) viewModel.updateWordsPerPageLimit((current + 50).coerceAtMost(800))
+                                },
+                                modifier = Modifier.height(32.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("50", fontSize = 11.sp)
+                            }
+                        }
+
+                        TextButton(
+                            onClick = {
+                                val standardWords = PageFormat.fromId(doc.pageSize).defaultWordsLimit
+                                viewModel.updateWordsPerPageLimit(standardWords)
+                            },
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(Icons.Outlined.RestartAlt, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Estándar", fontSize = 11.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Al alcanzar este umbral de palabras, DocuSheet creará automáticamente una nueva hoja consecutiva (Pág. 2, 3...) de forma ininterrumpida.",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    )
+                }
             }
 
             // --- Sección 2: Tipografía ---

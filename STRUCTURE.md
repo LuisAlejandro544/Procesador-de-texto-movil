@@ -89,6 +89,8 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 │       │
 │       └── util/
 │           ├── DocumentExporter.kt      # Generación de PDF (A4), Markdown (.md), HTML Editorial y Texto Plano (.txt)
+│           ├── DocuSheetCacheManager.kt # Gestión inteligente de caché (RAM LRU 25%, disco 50MB, poda y persistencia de fotos)
+│           ├── PageFormat.kt            # Catálogo de formatos de hoja (A4, Letter, Legal, A5, Custom) y capacidad estándar
 │           └── NativeEngineBridge.kt    # Puente seguro de carga JNI para 'docusheet_core'
 │
 └── res/
@@ -100,7 +102,7 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 
 ---
 
-## 🗄️ Modelo de Datos: `DocumentEntity`
+## 🗄️ Modelo de Datos: `DocumentEntity` (Base de Datos Room v3)
 
 | Campo | Tipo | Descripción |
 |---|---|---|
@@ -113,6 +115,8 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 | `lineSpacing` | `Float` | Interlineado multiplicador (1.2f, 1.5f, 2.0f) |
 | `marginStyle` | `String` | Márgenes de la hoja: `NARROW`, `NORMAL`, `WIDE` |
 | `alignment` | `String` | Alineación base del documento: `LEFT`, `CENTER`, `RIGHT`, `JUSTIFY` |
+| `pageSize` | `String` | Formato físico de papel: `A4`, `LETTER`, `LEGAL`, `A5`, `CUSTOM` |
+| `wordsPerPage` | `Int` | Límite máximo de palabras por hoja antes de generar página automática |
 | `createdAt` | `Long` | Timestamp de creación en milisegundos |
 | `updatedAt` | `Long` | Timestamp de última modificación |
 

@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.example.util.NativeEngineBridge
 import com.example.util.TextOperationResult
+import com.example.util.DocuSheetCacheManager
+import com.example.util.CacheStats
+import com.example.util.PageFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -104,8 +107,33 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     private val _userFeedbackMessage = MutableStateFlow<String?>(null)
     val userFeedbackMessage = _userFeedbackMessage.asStateFlow()
 
+    // Estadísticas cuantitativas de almacenamiento en caché y optimización
+    private val _cacheStats = MutableStateFlow(CacheStats())
+    val cacheStats = _cacheStats.asStateFlow()
+
     fun clearFeedbackMessage() {
         _userFeedbackMessage.value = null
+    }
+
+    fun refreshCacheStats() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val contents = allDocuments.value.map { it.content }
+            val stats = DocuSheetCacheManager.getCacheStats(getApplication(), contents)
+            _cacheStats.value = stats
+        }
+    }
+
+    fun cleanCache(onComplete: ((String) -> Unit)? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val contents = allDocuments.value.map { it.content }
+            val freedBytes = DocuSheetCacheManager.cleanAllReclaimable(getApplication(), contents)
+            refreshCacheStats()
+            val freedFormatted = CacheStats.formatBytes(freedBytes)
+            viewModelScope.launch(Dispatchers.Main) {
+                _userFeedbackMessage.value = "Se han liberado $freedFormatted de memoria caché y archivos temporales."
+                onComplete?.invoke("Se han liberado $freedFormatted de memoria caché y archivos temporales.")
+            }
+        }
     }
 
     private var autoSaveJob: Job? = null
@@ -119,6 +147,11 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+        viewModelScope.launch(Dispatchers.IO) {
+            DocuSheetCacheManager.autoPruneIfExceeded(application, emptyList())
+            refreshCacheStats()
+        }
     }
 
     /**
@@ -812,7 +845,7 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Actualiza la configuración de estilo de la hoja (papel, fuente, tamaño, interlineado, margen, alineación).
+     * Actualiza la configuración de estilo de la hoja (papel, fuente, tamaño, interlineado, margen, alineación, tamaño de hoja y palabras por hoja).
      */
     fun updatePageSettings(
         paperType: String? = null,
@@ -820,7 +853,9 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         fontSize: Int? = null,
         lineSpacing: Float? = null,
         marginStyle: String? = null,
-        alignment: String? = null
+        alignment: String? = null,
+        pageSize: String? = null,
+        wordsPerPage: Int? = null
     ) {
         val current = _activeDocument.value ?: return
         val updated = current.copy(
@@ -830,12 +865,31 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             lineSpacing = lineSpacing ?: current.lineSpacing,
             marginStyle = marginStyle ?: current.marginStyle,
             alignment = alignment ?: current.alignment,
+            pageSize = pageSize ?: current.pageSize,
+            wordsPerPage = wordsPerPage ?: current.wordsPerPage,
             updatedAt = System.currentTimeMillis()
         )
         _activeDocument.value = updated
         viewModelScope.launch(Dispatchers.IO) {
             repository.updateDocument(updated)
         }
+    }
+
+    /**
+     * Cambia el formato de hoja (A4, Carta, Legal, A5, Personalizado) y sincroniza su capacidad de palabras.
+     */
+    fun updatePageFormat(pageSize: String, customWordsPerPage: Int? = null) {
+        val format = PageFormat.fromId(pageSize)
+        val targetWords = customWordsPerPage ?: format.defaultWordsLimit
+        updatePageSettings(pageSize = format.id, wordsPerPage = targetWords)
+    }
+
+    /**
+     * Ajusta el límite de palabras por hoja física para el modo de auto-desborde a nuevas hojas.
+     */
+    fun updateWordsPerPageLimit(wordsLimit: Int) {
+        val safeWords = wordsLimit.coerceIn(50, 1500)
+        updatePageSettings(pageSize = "CUSTOM", wordsPerPage = safeWords)
     }
 
     /**
@@ -852,6 +906,8 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 lineSpacing = 1.5f,
                 marginStyle = "NORMAL",
                 alignment = "JUSTIFY",
+                pageSize = "A4",
+                wordsPerPage = 350,
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis()
             )

@@ -70,6 +70,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
@@ -116,7 +117,9 @@ fun PaperSheet(
     alignment: String = "LEFT",
     onAddPage: (() -> Unit)? = null,
     textFieldValue: TextFieldValue? = null,
-    onTextFieldValueChange: ((TextFieldValue) -> Unit)? = null
+    onTextFieldValueChange: ((TextFieldValue) -> Unit)? = null,
+    pageSize: String = "A4",
+    wordsPerPageLimit: Int = 350
 ) {
     // Configuración de colores del papel
     val (paperBgColor, paperTextColor, paperBorderColor, gridLineColor) = when (paperType) {
@@ -177,8 +180,8 @@ fun PaperSheet(
 
     if (isCascadeMode) {
         // --- Modo Cascada Continua (Múltiples Hojas de Papel) ---
-        val pageSlices = remember(content) {
-            calculatePageSlices(content)
+        val pageSlices = remember(content, wordsPerPageLimit) {
+            calculatePageSlices(content, wordsPerPageLimit)
         }
         val totalPages = pageSlices.size
 
@@ -239,6 +242,8 @@ fun PaperSheet(
                     isReadOnly = isReadOnly,
                     showRuler = (pageNumber == 1), // Regla principal en la primera hoja
                     alignment = alignment,
+                    pageSize = pageSize,
+                    wordsPerPageLimit = wordsPerPageLimit,
                     textFieldValue = pageTfv,
                     onTextFieldValueChange = { newPageTfv ->
                         if (newPageTfv.text != pageContent) {
@@ -309,6 +314,8 @@ fun PaperSheet(
             isReadOnly = isReadOnly,
             showRuler = true,
             alignment = alignment,
+            pageSize = pageSize,
+            wordsPerPageLimit = wordsPerPageLimit,
             modifier = modifier,
             textFieldValue = textFieldValue,
             onTextFieldValueChange = onTextFieldValueChange
@@ -320,9 +327,9 @@ fun PaperSheet(
  * Calcula los límites exactos de caracteres de cada hoja dentro del documento global,
  * asegurando la sincronización atómica entre las hojas físicas y el TextFieldValue de PC.
  */
-private fun calculatePageSlices(content: String): List<PageSlice> {
+private fun calculatePageSlices(content: String, wordsPerPageLimit: Int = 350): List<PageSlice> {
     if (content.isEmpty()) return listOf(PageSlice(0, "", 0, 0))
-    val rawPages = partitionIntoPages(content)
+    val rawPages = partitionIntoPages(content, wordsPerPageLimit)
     val slices = mutableListOf<PageSlice>()
     var searchStart = 0
     for ((index, pText) in rawPages.withIndex()) {
@@ -362,6 +369,8 @@ private fun SingleSheetCard(
     isReadOnly: Boolean,
     showRuler: Boolean,
     alignment: String = "LEFT",
+    pageSize: String = "A4",
+    wordsPerPageLimit: Int = 350,
     modifier: Modifier = Modifier,
     textFieldValue: TextFieldValue? = null,
     onTextFieldValueChange: ((TextFieldValue) -> Unit)? = null
@@ -569,14 +578,35 @@ private fun SingleSheetCard(
                 modifier = Modifier.align(Alignment.BottomStart)
             )
 
-            Text(
-                text = if (totalPages > 1) "— Página $pageNumber de $totalPages —" else "— Página 1 —",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 11.sp,
-                    color = paperTextColor.copy(alpha = 0.45f)
-                ),
-                modifier = Modifier.align(Alignment.Center)
-            )
+            val pageWords = remember(pageText) { countWords(pageText) }
+            val isOverLimit = pageWords >= wordsPerPageLimit
+
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = if (totalPages > 1) "— Página $pageNumber de $totalPages —" else "— Página 1 —",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = paperTextColor.copy(alpha = 0.55f)
+                    )
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "$pageWords / $wordsPerPageLimit palabras ($pageSize)",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 9.5.sp,
+                        fontWeight = if (isOverLimit) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isOverLimit) {
+                            if (paperType == "DARK") Color(0xFFF87171) else Color(0xFFDC2626)
+                        } else {
+                            paperTextColor.copy(alpha = 0.4f)
+                        }
+                    )
+                )
+            }
 
             CornerMarginGuide(
                 color = paperTextColor.copy(alpha = 0.25f),
@@ -628,9 +658,10 @@ private fun SheetImageBlock(
                 .border(1.dp, borderColor, RoundedCornerShape(6.dp))
                 .clip(RoundedCornerShape(6.dp))
         ) {
+            val imageSource: Any = if (uri.startsWith("/")) File(uri) else uri
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(uri)
+                    .data(imageSource)
                     .crossfade(true)
                     .build(),
                 contentDescription = caption.ifEmpty { "Imagen incrustada" },
@@ -1128,28 +1159,61 @@ private fun CascadePageDivider(
 }
 
 /**
- * Divide el texto en hojas lógicas para la vista en cascada.
+ * Cuenta las palabras de un fragmento de texto de forma precisa.
  */
-private fun partitionIntoPages(content: String): List<String> {
+fun countWords(text: String): Int {
+    if (text.isBlank()) return 0
+    return text.trim().split(Regex("\\s+")).count { it.isNotEmpty() }
+}
+
+/**
+ * Divide el texto en hojas lógicas para la vista en cascada respetando el límite dinámico de palabras por hoja.
+ * Cuando el número de palabras sobrepasa la capacidad configurada de la hoja, el texto sobrante
+ * desborda naturalmente y se apila en una segunda, tercera o sucesivas hojas continuas.
+ */
+private fun partitionIntoPages(content: String, wordsPerPageLimit: Int = 350): List<String> {
     if (content.isBlank()) return listOf("")
     val explicitPages = content.split(Regex("\\n\\[--- Salto de Página ---\\]\\n|\\n---\\n"))
     val result = mutableListOf<String>()
-    val charLimitPerPage = 1400
+    val safeLimit = wordsPerPageLimit.coerceAtLeast(50)
 
     for (part in explicitPages) {
-        if (part.length <= charLimitPerPage) {
+        val totalWords = countWords(part)
+        if (totalWords <= safeLimit) {
             result.add(part)
         } else {
-            // Dividir respetando párrafos
+            // Dividir inteligentemente por párrafos respetando el límite de palabras de la hoja física
             val paragraphs = part.split("\n\n")
             var currentBuffer = StringBuilder()
+            var currentWordCount = 0
+
             for (p in paragraphs) {
-                if (currentBuffer.length + p.length > charLimitPerPage && currentBuffer.isNotEmpty()) {
+                val pWords = countWords(p)
+                if (currentWordCount + pWords > safeLimit && currentBuffer.isNotEmpty()) {
                     result.add(currentBuffer.toString().trimEnd())
                     currentBuffer = StringBuilder()
+                    currentWordCount = 0
                 }
-                if (currentBuffer.isNotEmpty()) currentBuffer.append("\n\n")
-                currentBuffer.append(p)
+
+                if (pWords > safeLimit) {
+                    // Si un único párrafo extenso supera el límite de palabras de una sola hoja, dividirlo por líneas
+                    val lines = p.split("\n")
+                    for (line in lines) {
+                        val lineWords = countWords(line)
+                        if (currentWordCount + lineWords > safeLimit && currentBuffer.isNotEmpty()) {
+                            result.add(currentBuffer.toString().trimEnd())
+                            currentBuffer = StringBuilder()
+                            currentWordCount = 0
+                        }
+                        if (currentBuffer.isNotEmpty()) currentBuffer.append("\n")
+                        currentBuffer.append(line)
+                        currentWordCount += lineWords
+                    }
+                } else {
+                    if (currentBuffer.isNotEmpty()) currentBuffer.append("\n\n")
+                    currentBuffer.append(p)
+                    currentWordCount += pWords
+                }
             }
             if (currentBuffer.isNotEmpty()) {
                 result.add(currentBuffer.toString())

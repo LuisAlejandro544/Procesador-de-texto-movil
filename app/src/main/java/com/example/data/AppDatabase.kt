@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,7 +16,7 @@ import kotlinx.coroutines.launch
  * Gestiona la tabla de documentos e inicializa un documento de bienvenida
  * para que el usuario pueda escribir y probar el procesador de texto desde el primer momento.
  */
-@Database(entities = [DocumentEntity::class], version = 2, exportSchema = false)
+@Database(entities = [DocumentEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun documentDao(): DocumentDao
@@ -24,6 +25,13 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE documents ADD COLUMN pageSize TEXT NOT NULL DEFAULT 'A4'")
+                database.execSQL("ALTER TABLE documents ADD COLUMN wordsPerPage INTEGER NOT NULL DEFAULT 350")
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -31,6 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "docusheet_database"
                 )
+                    .addMigrations(MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .addCallback(DatabaseCallback(scope))
                     .build()
@@ -75,6 +84,8 @@ Aquí puedes redactar cartas, ensayos, contratos y borradores con herramientas p
                     lineSpacing = 1.5f,
                     marginStyle = "NORMAL",
                     alignment = "JUSTIFY",
+                    pageSize = "A4",
+                    wordsPerPage = 350,
                     createdAt = System.currentTimeMillis(),
                     updatedAt = System.currentTimeMillis()
                 )

@@ -153,7 +153,25 @@ Este documento traza las fases evolutivas para transformar DocuSheet desde una e
 
 ---
 
-## 🌟 Fase 11: Próximas Mejoras Planificadas
+## 🖼️ Fase 11: Inserción desde Galería, Gestión Inteligente de Caché y Formatos de Hoja (Completada ✅)
+- [x] **Inserción de Imágenes desde Galería Móvil**:
+  - Integración del Android Photo Picker oficial (`ActivityResultContracts.PickVisualMedia`) sin permisos invasivos.
+  - Previsualización en tiempo real dentro del diálogo `ImageDialog` con Coil `AsyncImage`.
+  - Compresión y procesamiento en segundo plano (`Dispatchers.IO`) a resolución optimizada (JPEG 86%, máx. 1920 px).
+  - Almacenamiento local persistente en `filesDir/doc_images` blindando las imágenes contra la expiración de URIs de Android.
+- [x] **Gestión Inteligente de Memoria Caché y Almacenamiento (`DocuSheetCacheManager`)**:
+  - Configuración optimizada de Coil con política LRU en memoria RAM (tope 25%) y límite de disco de 50 MB.
+  - Poda automática programada (`autoPruneIfExceeded`) de imágenes huérfanas y archivos temporales de exportación mayores a 7 días.
+  - Panel interactivo de estado de almacenamiento en `AboutScreen` con botón de liberación inmediata de memoria caché.
+- [x] **Formatos Físicos de Hoja y Paginación Dinámica (`PageFormat`)**:
+  - Formatos estándar: **A4 Estándar** (210×297 mm), **Carta / Letter** (216×279 mm), **Oficio / Legal** (216×356 mm), **Cuartilla / A5** (148×210 mm) y **Personalizado**.
+  - Control de palabras por hoja mediante control deslizante (Slider 100 a 800 palabras) y botones +/- 50 palabras en `DocumentSettingsScreen`.
+  - Paginación automática ininterrumpida: generación progresiva de hojas (Pág. 2, 3...) al sobrepasar el límite de palabras sin cortar la escritura.
+  - Migración de base de datos Room v2 a v3 (`MIGRATION_2_3`) con campos `pageSize` y `wordsPerPage`.
+
+---
+
+## 🌟 Fase 12: Próximas Mejoras Planificadas
 - [ ] Conexión completa del bucle de eventos del teclado táctil con el búfer Piece Table de Rust.
 - [ ] Modo Enfoque Zen (pantalla completa sin ningún botón visible durante la escritura continua).
 - [ ] Copia de seguridad y restauración local mediante archivo comprimido.

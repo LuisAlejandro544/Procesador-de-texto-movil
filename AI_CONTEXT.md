@@ -51,7 +51,7 @@ DocuSheet es un procesador de textos para Android cuyo objetivo primordial es re
    - Superación de limitaciones del sistema antiguo para incorporar renderizado de procesador de escritorio.
    - **Alineación Cuádruple con Justificado Real**: Directivas por párrafo (`[align:left|center|right|justify]`) y global de documento (`alignment`), con cálculo nativo en C++20 (`compute_justified_spacing`).
    - **Formatos Tipográficos Avanzados**: Subrayado (`<u>`, `__`), tachado (`~~`, `<s>`), subíndice (`<sub>`), superíndice (`<sup>`) y familias tipográficas por fragmento (`[font:serif|sans|mono|cursive]`).
-   - **Inserción de Imágenes con Ajuste de Hoja (Layout & Wrap)**: Modos `full`, `center`, `left`, `right` con renderizado asíncrono en Coil y reserva de altura en el paginador matemático de Rust.
+   - **Inserción de Imágenes de Galería y Web con Ajuste de Hoja (Layout & Wrap)**: Modos `full`, `center`, `left`, `right`. Soporte nativo para selección de fotos de la galería mediante Android Photo Picker (`PickVisualMedia`) sin permisos invasivos, compresión asíncrona balanceada y guardado seguro en almacenamiento interno (`filesDir/doc_images`). Carga asíncrona con Coil Compose y reserva de altura en el paginador matemático de Rust.
 
 9. **Selector Contextual Estilo PC y Desactivación del Selector Nativo**:
    - Reemplazo total del menú contextual por defecto del fabricante mediante `LocalTextToolbar` con `DocuSheetDisabledSystemToolbar`.
@@ -71,6 +71,17 @@ DocuSheet es un procesador de textos para Android cuyo objetivo primordial es re
    - Transposición rápida de párrafos (Swap ↑ / Swap ↓) e intercambio dinámico con el portapapeles.
    - Desplazamiento rápido de bloques seleccionados al inicio de la hoja (`moveSelectionToStart`) o al final (`moveSelectionToEnd`).
    - Algoritmo de bajo nivel implementado en C++20 (`TextManipulator`) y en el `PieceTable` de Rust (`swap_ranges` y `move_range`), con respaldo seguro en Kotlin a través de `NativeEngineBridge.kt`.
+
+12. **Gestión Inteligente de Memoria Caché y Almacenamiento Móvil (`DocuSheetCacheManager`)**:
+   - Políticas estrictas de consumo para smartphones: límite máximo del 25% de memoria RAM disponible para Coil ImageLoader con reciclaje de bitmaps y caché en disco acotada a 50 MB.
+   - Poda programada en segundo plano de imágenes locales huérfanas y residuos temporales de exportación superiores a 7 días.
+   - Panel de control y monitoreo en `AboutScreen` con botón de limpieza y optimización bajo demanda.
+
+13. **Formatos Físicos de Papel y Límite de Palabras con Paginación Dinámica (`PageFormat`)**:
+   - Catálogo de tamaños de hoja: A4 Estándar, Carta / Letter, Oficio / Legal, Cuartilla / A5 y Personalizado.
+   - Control de densidad y umbral de palabras por hoja mediante control deslizante (Slider) y ajustes rápidos (+/- 50 palabras) en `DocumentSettingsScreen`.
+   - Motor de paginación automática continua: cuando el texto supera el umbral fijado para el formato de papel seleccionado, el sistema divide y añade una nueva hoja correlativa en la cascada continua sin interrumpir la escritura.
+   - Esquema Room v3 con migración segura `MIGRATION_2_3` para los campos `pageSize` y `wordsPerPage`.
 
 ---
 

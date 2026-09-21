@@ -21,6 +21,8 @@ data class DocumentEntity(
     val lineSpacing: Float = 1.5f,        // Multiplicador de interlineado (1.2f, 1.5f, 2.0f)
     val marginStyle: String = "NORMAL",   // NARROW, NORMAL, WIDE
     val alignment: String = "LEFT",       // LEFT, CENTER, RIGHT, JUSTIFY (Alineación Cuádruple con Justificado Real)
+    val pageSize: String = "A4",          // A4, LETTER, LEGAL, A5, CUSTOM (Tamaño físico de la hoja)
+    val wordsPerPage: Int = 350,          // Capacidad máxima de palabras por hoja antes de auto-paginar
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

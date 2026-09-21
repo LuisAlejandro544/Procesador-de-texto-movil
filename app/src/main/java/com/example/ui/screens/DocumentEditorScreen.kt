@@ -58,6 +58,7 @@ import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.TextSnippet
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.NoteAdd
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Subscript
@@ -71,6 +72,7 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.ZoomIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,6 +82,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -95,12 +98,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -108,6 +114,18 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.foundation.BorderStroke
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.util.CacheStats
+import com.example.util.DocuSheetCacheManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.DocumentViewModel
@@ -171,6 +189,31 @@ fun DocumentEditorScreen(
     var imageUrlInput by remember { mutableStateOf("") }
     var imageCaptionInput by remember { mutableStateOf("") }
     var imageWrapMode by remember { mutableStateOf("full") }
+    var isProcessingGalleryImage by remember { mutableStateOf(false) }
+    var selectedImageFile by remember { mutableStateOf<File?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val galleryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            isProcessingGalleryImage = true
+            coroutineScope.launch(Dispatchers.IO) {
+                val savedFilePath = DocuSheetCacheManager.saveImageFromUri(context, uri)
+                withContext(Dispatchers.Main) {
+                    isProcessingGalleryImage = false
+                    if (savedFilePath != null) {
+                        val file = File(savedFilePath)
+                        selectedImageFile = file
+                        imageUrlInput = savedFilePath
+                        Toast.makeText(context, "Imagen guardada en caché optimizada: ${CacheStats.formatBytes(file.length())}", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "No se pudo procesar la imagen seleccionada", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
 
     val wordCount = viewModel.getWordCount(editorContent)
     val charCount = viewModel.getCharCount(editorContent)
@@ -930,6 +973,8 @@ fun DocumentEditorScreen(
                             onAddPage = { viewModel.insertPageBreak() },
                             textFieldValue = editorTextFieldValue,
                             onTextFieldValueChange = { viewModel.onTextFieldValueChange(it) },
+                            pageSize = d.pageSize,
+                            wordsPerPageLimit = d.wordsPerPage,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -941,7 +986,11 @@ fun DocumentEditorScreen(
     // --- Diálogo para Inserción de Imágenes con Ajuste de Hoja (Layout & Wrap) ---
     if (showImageDialog) {
         AlertDialog(
-            onDismissRequest = { showImageDialog = false },
+            onDismissRequest = {
+                showImageDialog = false
+                imageUrlInput = ""
+                selectedImageFile = null
+            },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -956,6 +1005,72 @@ fun DocumentEditorScreen(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Botón para seleccionar desde la galería del dispositivo
+                    OutlinedButton(
+                        onClick = {
+                            galleryPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (isProcessingGalleryImage) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Comprimiendo y optimizando...")
+                        } else {
+                            Icon(Icons.Outlined.PhotoLibrary, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Elegir de la Galería del Móvil", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    if (imageUrlInput.isNotBlank()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val imageSource: Any = if (imageUrlInput.startsWith("/")) File(imageUrlInput) else imageUrlInput
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(imageSource)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Vista previa",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (imageUrlInput.startsWith("/")) "Imagen de Galería (Caché optimizada)" else "Enlace Web",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Text(
+                                        text = if (imageUrlInput.startsWith("/")) {
+                                            val f = File(imageUrlInput)
+                                            "${f.name.take(18)} (${CacheStats.formatBytes(f.length())})"
+                                        } else {
+                                            imageUrlInput.take(24) + "..."
+                                        },
+                                        style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Text(
                         text = "Ajuste de Hoja (Layout & Wrap):",
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
@@ -982,7 +1097,7 @@ fun DocumentEditorScreen(
                     OutlinedTextField(
                         value = imageUrlInput,
                         onValueChange = { imageUrlInput = it },
-                        label = { Text("URL o ruta de la imagen") },
+                        label = { Text("Ruta en caché o URL web") },
                         placeholder = { Text("https://ejemplo.com/grafico.png") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -1010,13 +1125,21 @@ fun DocumentEditorScreen(
                             caption = imageCaptionInput.trim()
                         )
                         showImageDialog = false
+                        imageUrlInput = ""
+                        selectedImageFile = null
                     }
                 ) {
                     Text("Insertar en Hoja", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showImageDialog = false }) {
+                TextButton(
+                    onClick = {
+                        showImageDialog = false
+                        imageUrlInput = ""
+                        selectedImageFile = null
+                    }
+                ) {
                     Text("Cancelar")
                 }
             }

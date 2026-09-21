@@ -51,17 +51,42 @@
   - *Mover al Final (Bottom)*: Envía el fragmento seleccionado al final de la última hoja del documento.
   - *Motor Nativo en C++20 y Rust*: Operaciones de permutación procesadas a alta velocidad en `TextManipulator` (`docusheet_core.cpp`) y métodos `swap_ranges` / `move_range` en el `PieceTable` de Rust, con respaldo tolerante a fallos en Kotlin.
 
-### 4. Inserción de Imágenes con Ajuste de Hoja (Layout & Wrap)
+### 4. Inserción de Imágenes de Galería y Web con Ajuste de Hoja (Layout & Wrap)
+- **Inserción desde Galería del Dispositivo (Android Photo Picker)**:
+  - Selector nativo de imágenes sin necesidad de permisos invasivos (`ActivityResultContracts.PickVisualMedia`).
+  - Previsualización en miniatura instantánea en el diálogo antes de insertar en el documento.
+  - Compresión y optimización en segundo plano (`Dispatchers.IO`) a resolución equilibrada (JPEG 86% / máx. 1920 px) para un rendimiento ágil y bajo consumo de memoria.
+  - Almacenamiento persistente en directorio interno seguro (`filesDir/doc_images`) para evitar que los permisos temporales de URIs del sistema expiren al reiniciar el teléfono.
+  - Soporte continuo para URLs e imágenes web con carga asíncrona.
 - **Modos de Ajuste Físico**:
   - *Ancho Completo (`full`)*: La imagen abarca el ancho imprimible de la hoja.
   - *Centrada (`center`)*: Bloque destacado con márgenes simétricos.
   - *Alineada a la Izquierda (`left`)* y *Alineada a la Derecha (`right`)*.
 - **Integración con Coil & Motor de Rust**:
-  - Carga eficiente asíncrona mediante Coil con soporte de caché y crossfade.
+  - Carga eficiente asíncrona mediante Coil con soporte de caché LRU y crossfade.
   - El motor en Rust (`CascadePaginator`) computa la altura y peso de las imágenes insertadas para calcular saltos de página y paginación en cascada de forma exacta.
   - Marco con sombreado de papel, bordes sutiles y pie de figura opcional.
 
-### 5. Herramienta de Tablas y Cuadrículas Editoriales
+### 5. Gestión Inteligente de Memoria Caché y Almacenamiento
+- **Control Activo de Recursos Móviles (`DocuSheetCacheManager`)**:
+  - **Límites de Memoria RAM**: Tope estricto del 25% de la memoria de la aplicación para el almacenamiento en caché de imágenes decodificadas, con política LRU (Least Recently Used) y reciclaje de mapas de bits.
+  - **Caché en Disco Acotada**: Límite de 50 MB para descargas y cachés de red de Coil.
+  - **Poda Automática Programada**: Detección y limpieza de imágenes huérfanas y archivos temporales de exportación (PDF/Markdown/HTML/TXT) con más de 7 días de antigüedad.
+  - **Centro de Control de Caché en `AboutScreen`**: Panel de métricas que informa el espacio ocupado por la caché y archivos locales, con botón táctil directo para «Liberar y Optimizar Caché» en cualquier momento.
+
+### 6. Formatos Físicos de Papel y Paginación Automática por Límite de Palabras
+- **Catálogo de Formatos Físicos de Hoja (`PageFormat`)**:
+  - *A4 Estándar*: 210 × 297 mm (capacidad estándar: ~350 palabras).
+  - *Carta / Letter*: 216 × 279 mm (capacidad estándar: ~300 palabras).
+  - *Oficio / Legal*: 216 × 356 mm (capacidad estándar: ~450 palabras).
+  - *Cuartilla / A5*: 148 × 210 mm (capacidad estándar: ~180 palabras).
+  - *Personalizado*: Ajustable libremente según la necesidad del redactor.
+- **Límite Dinámico de Palabras por Hoja**:
+  - Selector táctil con control deslizante (Slider de 100 a 800 palabras) y botones de ajuste rápido (+/- 50 palabras) en la pantalla `DocumentSettingsScreen`.
+  - Paginación automática ininterrumpida: al alcanzar el umbral de palabras configurado, DocuSheet segmenta el flujo de texto y genera automáticamente una nueva hoja subordinada (Página 2, 3...) en Cascada Continua sin interrumpir la escritura ni perder la posición del cursor.
+  - Migración segura en base de datos Room de versión 2 a 3 (`MIGRATION_2_3`), preservando íntegros los documentos existentes.
+
+### 7. Herramienta de Tablas y Cuadrículas Editoriales
 - **Diálogo Táctil de Configuración e Inserción (`TableInsertDialog`)**:
   - Ajuste interactivo de columnas (1 a 6) y filas (1 a 10) con controles táctiles optimizados (mínimo 48x48 dp).
   - Interruptor para fila de encabezados diferenciada (con negrita y contraste visual).
@@ -75,14 +100,14 @@
   - Cálculo de distribución métrica de columnas mediante el núcleo nativo en **C++20** (`computeTableColumnWidthsSafe`).
   - Sintaxis de marcado estructurada (`[table:style]...[/table]`) y compatibilidad con tablas estándar en Markdown (`| col 1 | col 2 |`).
 
-### 6. Sistema de Exportación Digital Multi-Formato (.PDF, .MD, .HTML y .TXT)
+### 8. Sistema de Exportación Digital Multi-Formato (.PDF, .MD, .HTML y .TXT)
 - **Exportación a PDF Digital (.pdf)**: Generación nativa en resolución vectorial formato A4 estándar (595x842 pt), con saltos de página limpios, encabezado, pie de página formal y respeto de la tipografía seleccionada.
 - **Exportación a HTML Editorial Estructurado (.html)**: Creación de documentos web autosuficientes con hojas de estilo CSS integradas, diseñadas con maquetación de libro impreso (textura de papel, márgenes, tipografía cuidada, citas con bordes destacados y tablas estilizadas).
 - **Exportación a Documento de Texto Plano (.txt)**: Archivo universal sin etiquetas de marcado para máxima compatibilidad con cualquier editor de texto o sistema externo.
 - **Exportación a Markdown (.md)**: Archivo universal con cabecera de metadatos, fecha de exportación y estructura de párrafos.
 - **Compartir Seguro mediante FileProvider**: Apertura y envío inmediato a cualquier aplicación del teléfono (Google Drive, WhatsApp, Adobe Reader, Correo o almacenamiento local).
 
-### 7. Visor Nativo de PDF de Alta Fidelidad e Integración "Abrir Con" (Open With)
+### 9. Visor Nativo de PDF de Alta Fidelidad e Integración "Abrir Con" (Open With)
 - **Integración con el Sistema Android ("Abrir Con")**:
   - Registro de filtros de intención (`ACTION_VIEW` y `ACTION_SEND`) en `AndroidManifest.xml` para el tipo MIME `application/pdf`.
   - Permite seleccionar DocuSheet desde administradores de archivos, WhatsApp, Gmail, navegadores web o almacenamiento externo para visualizar documentos PDF de inmediato.
@@ -93,7 +118,7 @@
   - Barra de estado con contador de página actual en tiempo real y botón directo para compartir.
   - Apertura local de PDFs desde la biblioteca de documentos mediante el selector de archivos del sistema.
 
-### 8. Métricas Detalladas y Gráficas de Productividad
+### 10. Métricas Detalladas y Gráficas de Productividad
 - **Meta Diaria de Escritura**: Ajuste del objetivo diario (250, 500, 1000 palabras) con indicador de anillo circular animado y porcentaje en vivo.
 - **Métricas Cuantitativas en Vivo**:
   - Palabras totales, caracteres almacenados y hojas creadas.
@@ -104,7 +129,7 @@
   - *Gráfica de distribución*: Barras comparativas de longitud de contenido entre los documentos creados.
   - *Gráfica semanal de ritmo*: Visualización de actividad y volumen de los 7 días de la semana.
 
-### 9. Barra de Herramientas y Escritorio de Edición
+### 11. Barra de Herramientas y Escritorio de Edición
 - **Deshacer y Rehacer (Undo / Redo)** en tiempo real con pila de cambios en memoria.
 - **Zoom ajustable**: Alterna entre 85%, 100% y 115% para una lectura y escritura cómodas.
 - **Modos de visualización**: Alterna entre el **Modo Edición** (con cursor y teclado) y el **Modo Lectura** (vista de hoja limpia e inmersiva con renderizado tipográfico).
@@ -129,8 +154,10 @@
   - Tarea Gradle `buildRustCore` vinculada a `preBuild` que ejecuta la compilación de Rust antes del ensamblado de CMake.
   - Empaquetado automático de ambos binarios `.so` en el APK final para todas las arquitecturas de 32 y 64 bits.
 - **Puente Interoperable**: **CXX** (Rust <-> C++20 de cero costo) y enlaces **JNI** (`NativeEngineBridge`).
-- **Persistencia**: Room Database (v2 con campo `alignment`, KSP + Kotlin Coroutines & Flow)
-- **Procesamiento de Imágenes**: Coil Compose (`AsyncImage`)
+- **Persistencia**: Room Database (v3 con `alignment`, `pageSize` y `wordsPerPage`, KSP + Kotlin Coroutines & Flow)
+- **Gestión Inteligente de Memoria y Caché**: `DocuSheetCacheManager` (política LRU, tope RAM 25%, poda de huérfanos y compresión balanceada)
+- **Procesamiento de Imágenes**: Android Photo Picker nativo (`PickVisualMedia`) + Coil Compose (`AsyncImage`)
+- **Formatos de Hoja y Paginación**: Catálogo `PageFormat` (A4, Letter, Legal, A5, Custom) con segmentación dinámica por palabras
 - **Exportación**: `android.graphics.pdf.PdfDocument` + `FileProvider`
 - **Navegación**: Navigation Compose (Rutas desacopladas)
 - **Asincronía**: Kotlin Coroutines (`Dispatchers.IO`)

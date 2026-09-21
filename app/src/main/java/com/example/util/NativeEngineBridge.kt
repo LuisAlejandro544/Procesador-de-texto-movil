@@ -16,25 +16,41 @@ object NativeEngineBridge {
     private var isNativeLoaded = false
     private var isRustLoaded = false
 
+    private fun logInfo(msg: String) {
+        try {
+            Log.i(TAG, msg)
+        } catch (_: Throwable) {
+            println("[$TAG] $msg")
+        }
+    }
+
+    private fun logWarn(msg: String) {
+        try {
+            Log.w(TAG, msg)
+        } catch (_: Throwable) {
+            System.err.println("[$TAG] $msg")
+        }
+    }
+
     init {
         // 1. Cargar biblioteca de alto rendimiento en Rust (docusheet_rust)
         try {
             System.loadLibrary("docusheet_rust")
             isRustLoaded = true
-            Log.i(TAG, "Biblioteca nativa 'docusheet_rust' cargada exitosamente.")
+            logInfo("Biblioteca nativa 'docusheet_rust' cargada exitosamente.")
         } catch (e: Throwable) {
             isRustLoaded = false
-            Log.w(TAG, "Biblioteca de Rust en preparación o enlazada estáticamente: ${e.message}")
+            logWarn("Biblioteca de Rust en preparación o enlazada estáticamente: ${e.message}")
         }
 
         // 2. Cargar biblioteca central en C++20 (docusheet_core)
         try {
             System.loadLibrary("docusheet_core")
             isNativeLoaded = true
-            Log.i(TAG, "Biblioteca nativa 'docusheet_core' (C++20) cargada exitosamente.")
+            logInfo("Biblioteca nativa 'docusheet_core' (C++20) cargada exitosamente.")
         } catch (e: Throwable) {
             isNativeLoaded = false
-            Log.w(TAG, "Motor nativo en preparación: ${e.message}")
+            logWarn("Motor nativo en preparación: ${e.message}")
         }
     }
 
@@ -171,7 +187,7 @@ object NativeEngineBridge {
                 val res = swapTextRangesNative(fullText, startA, endA, startB, endB)
                 if (res != null) return res
             } catch (e: Throwable) {
-                Log.w(TAG, "Excepción en swapTextRangesNative, usando fallback: ${e.message}")
+                logWarn("Excepción en swapTextRangesNative, usando fallback: ${e.message}")
             }
         }
         return fallbackSwapRanges(fullText, startA, endA, startB, endB)
@@ -191,7 +207,7 @@ object NativeEngineBridge {
                 val res = moveTextRangeNative(fullText, start, end, targetPosition)
                 if (res != null) return res
             } catch (e: Throwable) {
-                Log.w(TAG, "Excepción en moveTextRangeNative, usando fallback: ${e.message}")
+                logWarn("Excepción en moveTextRangeNative, usando fallback: ${e.message}")
             }
         }
         return fallbackMoveRange(fullText, start, end, targetPosition)
@@ -211,7 +227,7 @@ object NativeEngineBridge {
                 val res = swapParagraphNative(fullText, cursorStart, cursorEnd, swapUp)
                 if (res != null) return res
             } catch (e: Throwable) {
-                Log.w(TAG, "Excepción en swapParagraphNative, usando fallback: ${e.message}")
+                logWarn("Excepción en swapParagraphNative, usando fallback: ${e.message}")
             }
         }
         return fallbackSwapParagraph(fullText, cursorStart, cursorEnd, swapUp)
