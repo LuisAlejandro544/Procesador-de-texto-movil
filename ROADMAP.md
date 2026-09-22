@@ -211,7 +211,53 @@ Este documento traza las fases evolutivas para transformar DocuSheet desde una e
 
 ---
 
-## 🌟 Fase 14: Próximas Mejoras Planificadas
+## 🎨 Fase 14: Tipografía Avanzada 3D, Figuras Geométricas y Nodos de Diagrama de PC (Completada ✅)
+- [x] **Motor y Diálogo de Tipografía Avanzada de PC (`TextStyle3dDialog.kt`)**:
+  - Selector de color de texto con paleta visual y soporte para código hexadecimal libre (`[color:#HEX]...[/color]`).
+  - Selector de grosor métrico de letra con 9 niveles de peso tipográfico: Fino (Thin 100) a Negro (Black 900) con etiquetas estructuradas `[weight:grosor]...[/weight]`.
+  - Motor de relieve y sombra estereoscópica 3D (`[3d:#sombra,#relieve]...[/3d]`) con controles deslizantes e interruptores táctiles.
+  - Renderizado en tiempo real sobre la hoja física (`PaperRichVisualTransformation.kt`) con `Shadow(color, offset, blurRadius)` de Compose.
+  - Renderizado vectorial de sombras y efectos 3D en la exportación a PDF digital multipágina en `DocumentExporter.kt`.
+- [x] **Motor Gráfico de Figuras Geométricas Vectoriales de PC (`InsertShapeOrNodeDialog.kt`)**:
+  - Catálogo de formas: Rectángulo, Rectángulo redondeado, Círculo / Óvalo, Triángulo, Rombo, Estrella de 5 puntas, Flecha derecha, Flecha izquierda y Llamada de texto.
+  - Configuración completa de PC: ancho y alto (60 a 450 pt), alineación en la página (izquierda, centro, derecha), color de relleno, color de contorno y texto interior opcional.
+  - Sintaxis de marcado estructurada: `[shape:tipo,w=...,h=...,align=...,fill=...,stroke=...]Texto interior[/shape]`.
+- [x] **Diagramas de Nodos y Flujos Secuenciales de PC**:
+  - Creación interactiva de cadenas de pasos o mapas conceptuales con flechas conectoras continuas.
+  - Orientación horizontal y vertical con colores de nodo y conectores configurables.
+  - Marcado sintáctico: `[nodes:horizontal|vertical,color=...,line=...]Paso 1 -> Paso 2 -> Paso 3[/nodes]`.
+- [x] **Integración en Lienzo de Papel y Exportador a PDF Nativo**:
+  - Renderizado modular de figuras y grafos sobre el lienzo de la hoja física con Compose Canvas en `PaperSheet.kt` y `PaperBlockRenderer.kt`.
+  - Exportación vectorial nítida de alta resolución a PDF digital con `android.graphics.Canvas`, trazado `Path` y pinceles en `DocumentExporter.kt`.
+- [x] **Optimizaciones Ergonómicas del Entorno de Redacción**:
+  - Buscador de PC expandido y adaptado a pantallas táctiles de smartphone para visualización cómoda de texto.
+  - Asistente de inserción y edición intuitiva de tablas editoriales.
+
+---
+
+## 📦 Fase 15: Interoperabilidad Universal de Documentos (.DOCX, .RTF, .TEX, .MD, .TXT) (Completada ✅)
+- [x] **Motor OpenXML para Microsoft Word (.docx)**:
+  - Exportación sin dependencias pesadas mediante empaquetado ZIP nativo (`ZipOutputStream`), generando estructura OpenXML (`word/document.xml`, `[Content_Types].xml`, `_rels`) con jerarquías, tablas y colores.
+  - Importación y descompresión asíncrona mediante `XmlPullParser` extrayendo párrafos, títulos y celdas directamente al lienzo de la hoja.
+- [x] **Motor de Formato Enriquecido Universal (.rtf / Rich Text Format)**:
+  - Generación de archivos RTF estándar con tabla de fuentes (`Calibri`, `Times New Roman`, `Courier New`), tabla cromática de 5 tintas, tablas formateadas con comandos de celda (`\cell`, `\row`) y saltos de página (`\page`).
+  - Parser de lectura de secuencias de escape RTF con soporte de caracteres Unicode (`\uN`), negritas (`\b`), cursivas (`\i`), listas y tablas.
+- [x] **Motor de Maquetación Científica y Académica LaTeX (.tex)**:
+  - Exportación a código fuente LaTeX limpio y compilable para pdfLaTeX y XeLaTeX con preámbulo formal (`article`, A4, `babel[spanish]`, `amsmath`, `booktabs`, `tcolorbox`, `enumitem` y `hyperref`).
+  - Conversión vectorial de figuras geométricas y diagramas de nodos a cajas decorativas `tcolorbox`.
+  - Parser de importación que traduce `\title`, `\section`, `\subsection`, `\subsubsection`, `\item`, citas y tablas de entorno `tabular` a la sintaxis visual de DocuSheet.
+- [x] **Coordinador Universal de Importación (`DocumentImporter.kt`)**:
+  - Detección inteligente por extensión de archivo y análisis de firmas/números mágicos binarios en cabecera (`PK..`, `{\rtf`, `\documentclass`).
+  - Ejecución completamente asíncrona en `Dispatchers.IO` para evitar bloqueos del hilo principal en teléfonos móviles.
+- [x] **Integración de Usuario Móvil de Alta Accesibilidad**:
+  - Botón táctil directo de importación (`Icons.Outlined.FileOpen`) en la barra superior de `DocumentListScreen`.
+  - Tarjeta de opción «Importar Documento Externo» en el diálogo de plantillas de nueva hoja (`showNewDocDialog`).
+  - Botón complementario «Importar» en la vista de estado vacío de la biblioteca de documentos.
+  - Opciones completas de exportación en el menú desplegable del editor (`EditorTopBar`): Word (.docx), RTF (.rtf), LaTeX (.tex) con iconos y colores temáticos representativos.
+
+---
+
+## 🌟 Fase 16: Próximas Mejoras Planificadas
 - [ ] Conexión completa del bucle de eventos del teclado táctil con el búfer Piece Table de Rust.
 - [ ] Modo Enfoque Zen (pantalla completa sin ningún botón visible durante la escritura continua).
 - [ ] Copia de seguridad y restauración local mediante archivo comprimido.

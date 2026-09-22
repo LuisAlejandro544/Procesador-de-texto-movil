@@ -84,6 +84,8 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 │       │   │   ├── PaperSheet.kt        # Coordinador del lienzo de hoja de papel física y Cascada Continua
 │       │   │   ├── TableSheetBlock.kt   # Renderizador físico de tablas y cuadrículas editoriales sobre la hoja
 │       │   │   ├── TableInsertDialog.kt # Diálogo táctil de configuración e inserción de tablas
+│       │   │   ├── TextStyle3dDialog.kt # Diálogo táctil de estilo tipográfico: color, 9 grosores y efecto 3D
+│       │   │   ├── InsertShapeOrNodeDialog.kt # Diálogo de figuras geométricas de PC y diagramas de nodos de flujo
 │       │   │   ├── DocuSheetSearchRadarBar.kt # Panel táctil de búsqueda, reemplazo, carrusel y radar de redundancia
 │       │   │   ├── DocuSheetSelectionToolbar.kt # Barra contextual estilo PC y silenciador del menú del fabricante
 │       │   │   ├── DocuSheetMacroBottomSheet.kt # Panel táctil modal de macros, variables dinámicas y creación rápida
@@ -123,7 +125,11 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 │       │       └── Type.kt              # Jerarquía tipográfica base
 │       │
 │       └── util/
-│           ├── DocumentExporter.kt      # Generación de PDF (A4), Markdown (.md), HTML Editorial y Texto Plano (.txt)
+│           ├── DocumentExporter.kt      # Generación de PDF (A4), Word (.docx), RTF (.rtf), LaTeX (.tex), MD, HTML y TXT
+│           ├── DocumentImporter.kt      # Coordinador universal de importación con detección de extensión y números mágicos
+│           ├── DocxHandler.kt           # Motor de importación/exportación de Microsoft Word (.docx) mediante OpenXML y Zip
+│           ├── RtfHandler.kt            # Motor de importación/exportación de Rich Text Format (.rtf) con fuentes, tablas y estilos
+│           ├── LatexHandler.kt          # Motor de importación/exportación de LaTeX (.tex) con preámbulo A4, booktabs y tcolorbox
 │           ├── DocuSheetCacheManager.kt # Gestión inteligente de caché (RAM LRU 25%, disco 50MB, poda y persistencia de fotos)
 │           ├── PageFormat.kt            # Catálogo de formatos de hoja (A4, Letter, Legal, A5, Custom) y capacidad estándar
 │           ├── StyleRadarEngine.kt      # Motor de redundancia con Apache Lucene (SpanishAnalyzer, SpanishLightStemmer)
@@ -227,6 +233,16 @@ DocuSheet incorpora un procesador híbrido de sintaxis enriquecida adaptado a ho
     - **PaperSheet (`ui/components/paper/`)**: Subdividido en submódulos de paginación matemática (`PaperSheetPaginator`), transformación visual sintáctica (`PaperRichVisualTransformation`), guías físicas y reglas (`PaperSheetGuides`), renderizado de imágenes (`SheetImageBlock`) y renderizado de bloques (`PaperBlockRenderer`).
     - **DocumentEditorScreen (`ui/screens/editor/`)**: Descompuesto en barra superior (`EditorTopBar`), barra de formato tipográfico (`EditorFormattingToolbar`), barra de estado de PC (`EditorStatusBar`) y diálogo modal de inserción fotográfica (`ImageInsertDialog`).
     - **DocuSheetSelectionToolbar (`ui/components/selection/`)**: Modularizado en botones de escritorio (`SelectionBarButton`), banner de transposición (`SelectionSwapBanner`) y paleta de tintas clásicas (`SelectionInkPaletteDialog`).
+11. **Tipografía Avanzada 3D, Figuras Geométricas y Nodos de Diagrama de PC**:
+    - **Estilos 3D y Tipografía Avanzada (`TextStyle3dDialog.kt`)**: Configuración de paleta de colores de tinta con selector hexadecimal, 9 niveles métricos de peso (`[weight:...]`) y motor estereoscópico de relieve y sombra 3D (`[3d:#sombra,#relieve]`). Renderizado en vivo sobre la hoja física con Compose Shadow y en exportación digital vectorial A4 en `DocumentExporter.kt`.
+    - **Figuras Geométricas Vectoriales (`InsertShapeOrNodeDialog.kt`)**: Catálogo de 9 formas (rectángulo, círculo, triángulo, rombo, estrella, flechas, llamadas de texto) con dimensiones de ancho/alto, alineación en la hoja, color de relleno/trazo y texto interior integrado (`[shape:...]Texto[/shape]`).
+    - **Diagramas de Nodos y Flujos (`InsertShapeOrNodeDialog.kt`)**: Cadenas de procesos con flechas conectoras continuas en orientación horizontal o vertical (`[nodes:...]Paso 1 -> Paso 2 -> Paso 3[/nodes]`).
+    - **Renderizado Físico y Exportación Vectorial**: Visualización interactiva en tiempo real sobre la hoja de papel con Canvas nativo y generación vectorial de alta resolución en `DocumentExporter.kt` para PDF digital multipágina.
+12. **Interoperabilidad Universal de Documentos (.DOCX, .RTF, .TEX, .MD, .TXT)**:
+    - **Microsoft Word (.docx)**: Implementado mediante `DocxHandler.kt` con ensamblado OpenXML empaquetado en ZIP (`word/document.xml`, estilos, relaciones) y lectura asíncrona mediante `XmlPullParser` para importar títulos, párrafos y tablas.
+    - **Rich Text Format (.rtf)**: Implementado mediante `RtfHandler.kt` con cabecera estándar `\rtf1\ansi`, tabla de fuentes (`\fonttbl`), tabla cromática (`\colortbl`), tablas con celdas y filas (`\cell`, `\row`) y saltos de página (`\page`), con decodificador de secuencias de escape y Unicode para importación.
+    - **LaTeX Científico y Académico (.tex)**: Implementado mediante `LatexHandler.kt` con preámbulo formal (`article`, A4, `babel[spanish]`, `amsmath`, `booktabs`, `tcolorbox`, `enumitem`, `hyperref`), traducción de figuras/diagramas a cajas vectoriales `tcolorbox` y parser estructurado para importar títulos, secciones, listas y tablas a la hoja física.
+    - **Coordinador Centralizado (`DocumentImporter.kt`)**: Facade que detecta automáticamente tipos MIME, extensiones y firmas de archivo (`PK..`, `{\rtf`, `\documentclass`) para importar documentos directamente a la base de datos o al editor activo en segundo plano (`Dispatchers.IO`).
 
 ---
 

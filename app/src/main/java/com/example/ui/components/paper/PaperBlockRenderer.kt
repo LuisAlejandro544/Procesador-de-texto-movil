@@ -38,6 +38,24 @@ sealed class SheetBlock {
     data class Paragraph(val rawLine: String) : SheetBlock()
     data class Image(val uri: String, val wrapMode: String, val caption: String) : SheetBlock()
     data class Table(val lines: List<String>, val style: String) : SheetBlock()
+    data class Shape(
+        val type: String,
+        val widthDp: Int,
+        val heightDp: Int,
+        val align: String,
+        val fillColorHex: String,
+        val strokeColorHex: String,
+        val borderWidthDp: Int,
+        val cornerRadiusDp: Int,
+        val text: String
+    ) : SheetBlock()
+    data class Nodes(
+        val nodes: List<String>,
+        val align: String,
+        val layout: String,
+        val fillColorHex: String,
+        val strokeColorHex: String
+    ) : SheetBlock()
 }
 
 /**
@@ -121,7 +139,33 @@ fun FormattedSheetContent(
                 continue
             }
 
-            // 4. Párrafo estándar
+            // 4. Bloque de figura geométrica: [shape:...]
+            if (trimmedLine.startsWith("[shape:", ignoreCase = true) && trimmedLine.endsWith("]")) {
+                val paramsStr = trimmedLine.removePrefix("[shape:").removeSuffix("]").trim()
+                result.add(parseShapeDirective(paramsStr))
+                i++
+                continue
+            }
+
+            // 5. Bloque de diagrama de nodos: [nodes...] ... [/nodes]
+            if (trimmedLine.startsWith("[nodes", ignoreCase = true) && trimmedLine.endsWith("]")) {
+                val header = trimmedLine.removePrefix("[nodes").removeSuffix("]").trim()
+                val paramsStr = if (header.startsWith(":")) header.removePrefix(":") else ""
+                val nodeLines = mutableListOf<String>()
+                i++
+                while (i < lines.size && lines[i].trim() != "[/nodes]") {
+                    val nl = lines[i].trim()
+                    if (nl.isNotEmpty()) {
+                        nodeLines.add(nl)
+                    }
+                    i++
+                }
+                result.add(parseNodesDirective(paramsStr, nodeLines))
+                i++
+                continue
+            }
+
+            // 6. Párrafo estándar
             result.add(SheetBlock.Paragraph(rawLine))
             i++
         }
@@ -131,6 +175,30 @@ fun FormattedSheetContent(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         for (block in blocks) {
             when (block) {
+                is SheetBlock.Shape -> {
+                    SheetShapeBlock(
+                        type = block.type,
+                        widthDp = block.widthDp,
+                        heightDp = block.heightDp,
+                        align = block.align,
+                        fillColorHex = block.fillColorHex,
+                        strokeColorHex = block.strokeColorHex,
+                        borderWidthDp = block.borderWidthDp,
+                        cornerRadiusDp = block.cornerRadiusDp,
+                        text = block.text,
+                        defaultFontFamily = fontFamily
+                    )
+                }
+                is SheetBlock.Nodes -> {
+                    SheetNodesBlock(
+                        nodes = block.nodes,
+                        align = block.align,
+                        layout = block.layout,
+                        fillColorHex = block.fillColorHex,
+                        strokeColorHex = block.strokeColorHex,
+                        defaultFontFamily = fontFamily
+                    )
+                }
                 is SheetBlock.Table -> {
                     TableSheetBlock(
                         tableLines = block.lines,
@@ -330,3 +398,97 @@ fun FormattedSheetContent(
         }
     }
 }
+
+/**
+ * Parsea los parámetros de directiva de figura: [shape:type=rect,w=220,h=100,align=center,fill=#DBEAFE,stroke=#2563EB,border=2,radius=10,text="Mi Figura"]
+ */
+fun parseShapeDirective(paramsStr: String): SheetBlock.Shape {
+    var type = "rect"
+    var w = 220
+    var h = 90
+    var align = "center"
+    var fill = "#DBEAFE"
+    var stroke = "#2563EB"
+    var border = 2
+    var radius = 10
+    var text = ""
+
+    val tokens = paramsStr.split(",")
+    for (t in tokens) {
+        val trimmed = t.trim()
+        if (trimmed.isEmpty()) continue
+        if (trimmed.contains("=")) {
+            val key = trimmed.substringBefore("=").trim().lowercase()
+            val value = trimmed.substringAfter("=").trim().removeSurrounding("\"").removeSurrounding("'")
+            when (key) {
+                "type" -> type = value.lowercase()
+                "w", "width" -> w = value.toIntOrNull() ?: 220
+                "h", "height" -> h = value.toIntOrNull() ?: 90
+                "align" -> align = value.lowercase()
+                "fill" -> fill = value
+                "stroke" -> stroke = value
+                "border" -> border = value.toIntOrNull() ?: 2
+                "radius" -> radius = value.toIntOrNull() ?: 10
+                "text" -> text = value
+            }
+        } else {
+            val lower = trimmed.lowercase()
+            if (lower in listOf("rect", "circle", "oval", "triangle", "diamond", "rombo", "star", "arrow", "callout")) {
+                type = lower
+            }
+        }
+    }
+
+    return SheetBlock.Shape(
+        type = type,
+        widthDp = w,
+        heightDp = h,
+        align = align,
+        fillColorHex = fill,
+        strokeColorHex = stroke,
+        borderWidthDp = border,
+        cornerRadiusDp = radius,
+        text = text
+    )
+}
+
+/**
+ * Parsea los parámetros y las líneas conectadas de un diagrama de nodos.
+ */
+fun parseNodesDirective(paramsStr: String, lines: List<String>): SheetBlock.Nodes {
+    var align = "center"
+    var layout = "horizontal"
+    var fill = "#F1F5F9"
+    var stroke = "#2563EB"
+
+    val tokens = paramsStr.split(",")
+    for (t in tokens) {
+        val trimmed = t.trim()
+        if (trimmed.isEmpty()) continue
+        if (trimmed.contains("=")) {
+            val key = trimmed.substringBefore("=").trim().lowercase()
+            val value = trimmed.substringAfter("=").trim().removeSurrounding("\"").removeSurrounding("'")
+            when (key) {
+                "align" -> align = value.lowercase()
+                "layout" -> layout = value.lowercase()
+                "fill" -> fill = value
+                "stroke" -> stroke = value
+            }
+        }
+    }
+
+    val nodesList = mutableListOf<String>()
+    for (l in lines) {
+        val parts = l.split("->").map { it.trim() }.filter { it.isNotEmpty() }
+        nodesList.addAll(parts)
+    }
+
+    return SheetBlock.Nodes(
+        nodes = if (nodesList.isEmpty()) listOf("Paso 1", "Paso 2") else nodesList,
+        align = align,
+        layout = layout,
+        fillColorHex = fill,
+        strokeColorHex = stroke
+    )
+}
+

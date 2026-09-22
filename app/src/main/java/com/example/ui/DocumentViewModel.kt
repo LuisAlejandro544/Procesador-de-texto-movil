@@ -11,6 +11,7 @@ import com.example.data.DocumentRepository
 import com.example.data.macro.MacroEntity
 import com.example.data.macro.MacroRepository
 import com.example.data.synonym.ThesaurusRepository
+import com.example.ui.components.ActiveTableData
 import com.example.ui.delegates.DocumentStatsCalculator
 import com.example.ui.delegates.MacroWorkflowDelegate
 import com.example.ui.delegates.SearchAndRadarDelegate
@@ -138,6 +139,10 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     // Mensaje informativo temporal de operaciones de edición de PC
     private val _userFeedbackMessage = MutableStateFlow<String?>(null)
     val userFeedbackMessage = _userFeedbackMessage.asStateFlow()
+
+    // Estado reactivo para el Asistente Visual de Edición de Tablas
+    private val _activeEditingTable = MutableStateFlow<ActiveTableData?>(null)
+    val activeEditingTable: StateFlow<ActiveTableData?> = _activeEditingTable.asStateFlow()
 
     // Estadísticas cuantitativas de almacenamiento en caché y optimización
     private val _cacheStats = MutableStateFlow(CacheStats())
@@ -616,6 +621,49 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Aplica estilo de color, grosor o efecto 3D a la selección o en la posición del cursor.
+     */
+    fun applyTextStyle3d(prefixTag: String, suffixTag: String) {
+        val currentVal = _editorTextFieldValue.value
+        val text = currentVal.text
+        val selStart = currentVal.selection.min.coerceIn(0, text.length)
+        val selEnd = currentVal.selection.max.coerceIn(0, text.length)
+
+        if (selStart != selEnd) {
+            val selected = text.substring(selStart, selEnd)
+            val newText = text.substring(0, selStart) + prefixTag + selected + suffixTag + text.substring(selEnd)
+            val newCursor = selStart + prefixTag.length + selected.length + suffixTag.length
+            onTextFieldValueChange(TextFieldValue(newText, TextRange(newCursor)))
+        } else {
+            val placeholder = "Texto 3D"
+            val newText = text.substring(0, selStart) + prefixTag + placeholder + suffixTag + text.substring(selEnd)
+            val selStartNew = selStart + prefixTag.length
+            val selEndNew = selStartNew + placeholder.length
+            onTextFieldValueChange(TextFieldValue(newText, TextRange(selStartNew, selEndNew)))
+        }
+        saveImmediately()
+    }
+
+    /**
+     * Inserta un bloque estructurado (Figura geométrica o Diagrama de nodos) en el cursor.
+     */
+    fun insertBlockAtCursor(blockText: String) {
+        val currentVal = _editorTextFieldValue.value
+        val text = currentVal.text
+        val selStart = currentVal.selection.min.coerceIn(0, text.length)
+        val selEnd = currentVal.selection.max.coerceIn(0, text.length)
+
+        val prefix = if (selStart == 0 || (selStart > 0 && text[selStart - 1] == '\n')) "" else "\n"
+        val suffix = if (selEnd < text.length && text[selEnd] == '\n') "" else "\n"
+        val fullInsert = prefix + blockText.trim() + suffix
+
+        val newText = text.substring(0, selStart) + fullInsert + text.substring(selEnd)
+        val newCursor = selStart + fullInsert.length
+        onTextFieldValueChange(TextFieldValue(newText, TextRange(newCursor)))
+        saveImmediately()
+    }
+
     fun insertTable(
         rows: Int = 3,
         cols: Int = 3,
@@ -678,6 +726,204 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 selection = TextRange(newCursor)
             )
         )
+    }
+
+    /**
+     * Verifica rápidamente si la posición del cursor se encuentra dentro de un bloque de tabla.
+     */
+    fun isCursorInTable(): Boolean {
+        return findTableAtCursor() != null
+    }
+
+    /**
+     * Detecta si la posición actual del cursor o selección se encuentra dentro de una tabla.
+     */
+    fun findTableAtCursor(): ActiveTableData? {
+        val tfv = _editorTextFieldValue.value
+        val text = tfv.text
+        if (text.isEmpty()) return null
+
+        val cursor = tfv.selection.start.coerceIn(0, text.length)
+
+        // Caso 1: Tabla explícita con directiva [table:style] ... [/table]
+        val openTagIndex = text.lastIndexOf("[table:", cursor)
+        if (openTagIndex != -1) {
+            val closeTagIndex = text.indexOf("[/table]", openTagIndex)
+            if (closeTagIndex != -1) {
+                val fullEndIndex = (closeTagIndex + "[/table]".length).coerceAtMost(text.length)
+                if (cursor in openTagIndex..fullEndIndex) {
+                    val tableBlock = text.substring(openTagIndex, fullEndIndex)
+                    return parseTableBlock(tableBlock, openTagIndex, fullEndIndex)
+                }
+            }
+        }
+
+        // Caso 2: Tabla Markdown delimitada por líneas con '|'
+        val lines = text.lines()
+        var charCount = 0
+        var cursorLineIdx = -1
+        for ((idx, line) in lines.withIndex()) {
+            val lineEnd = charCount + line.length
+            if (cursor in charCount..lineEnd) {
+                cursorLineIdx = idx
+                break
+            }
+            charCount = lineEnd + 1 // Salto de línea '\n'
+        }
+
+        if (cursorLineIdx != -1 && lines[cursorLineIdx].trim().startsWith("|")) {
+            var startLine = cursorLineIdx
+            while (startLine > 0 && lines[startLine - 1].trim().startsWith("|")) {
+                startLine--
+            }
+            var endLine = cursorLineIdx
+            while (endLine < lines.size - 1 && lines[endLine + 1].trim().startsWith("|")) {
+                endLine++
+            }
+
+            var startChar = 0
+            for (i in 0 until startLine) {
+                startChar += lines[i].length + 1
+            }
+            var endChar = startChar
+            for (i in startLine..endLine) {
+                endChar += lines[i].length + (if (i < lines.size - 1) 1 else 0)
+            }
+
+            val tableBlock = text.substring(startChar, endChar.coerceAtMost(text.length))
+            return parseTableBlock(tableBlock, startChar, endChar)
+        }
+
+        return null
+    }
+
+    /**
+     * Parsea un bloque de texto que contiene una tabla y lo estructura en ActiveTableData.
+     */
+    private fun parseTableBlock(block: String, startIndex: Int, endIndex: Int): ActiveTableData? {
+        val lines = block.lines()
+        var style = "classic"
+        val rowLines = mutableListOf<String>()
+
+        for (l in lines) {
+            val trimmed = l.trim()
+            if (trimmed.startsWith("[table:") && trimmed.endsWith("]")) {
+                style = trimmed.removePrefix("[table:").removeSuffix("]").trim().ifEmpty { "classic" }
+            } else if (trimmed == "[/table]") {
+                // etiqueta de cierre
+            } else if (trimmed.startsWith("|")) {
+                rowLines.add(trimmed)
+            }
+        }
+
+        if (rowLines.isEmpty()) return null
+
+        var hasHeader = false
+        val rows = mutableListOf<List<String>>()
+
+        var i = 0
+        while (i < rowLines.size) {
+            val current = rowLines[i]
+            val isSeparator = current.contains("---") && current.replace("|", "").replace("-", "").replace(":", "").isBlank()
+
+            if (isSeparator) {
+                if (rows.isNotEmpty()) {
+                    hasHeader = true
+                }
+                i++
+                continue
+            }
+
+            val cells = current
+                .removePrefix("|")
+                .removeSuffix("|")
+                .split("|")
+                .map { it.trim() }
+
+            if (cells.isNotEmpty()) {
+                rows.add(cells)
+            }
+            i++
+        }
+
+        if (rows.isEmpty()) return null
+
+        return ActiveTableData(
+            startIndex = startIndex,
+            endIndex = endIndex,
+            style = style,
+            hasHeader = hasHeader,
+            rows = rows
+        )
+    }
+
+    /**
+     * Abre el editor visual de tablas si el cursor se encuentra en una tabla existente.
+     * Retorna verdadero si se abrió el editor, o falso si no hay tabla bajo el cursor.
+     */
+    fun openTableEditor(): Boolean {
+        val table = findTableAtCursor()
+        if (table != null) {
+            _activeEditingTable.value = table
+            return true
+        }
+        return false
+    }
+
+    /**
+     * Cierra el editor visual de tablas.
+     */
+    fun closeTableEditor() {
+        _activeEditingTable.value = null
+    }
+
+    /**
+     * Aplica los cambios realizados en el Editor Visual de Tablas directamente sobre el documento.
+     */
+    fun saveTableChanges(updated: ActiveTableData) {
+        val sb = StringBuilder()
+        if (updated.style != "classic") {
+            sb.append("[table:${updated.style}]\n")
+        }
+
+        for ((index, row) in updated.rows.withIndex()) {
+            sb.append("|")
+            for (cell in row) {
+                val cleanCell = cell.replace("\n", " ").replace("|", "\\|")
+                sb.append(" $cleanCell |")
+            }
+            sb.append("\n")
+
+            if (index == 0 && updated.hasHeader) {
+                sb.append("|")
+                for (i in row.indices) {
+                    sb.append("---|")
+                }
+                sb.append("\n")
+            }
+        }
+
+        if (updated.style != "classic") {
+            sb.append("[/table]\n")
+        }
+
+        val newTableText = sb.toString()
+        val currentText = _editorTextFieldValue.value.text
+
+        val safeStart = updated.startIndex.coerceIn(0, currentText.length)
+        val safeEnd = updated.endIndex.coerceIn(safeStart, currentText.length)
+
+        val newFullText = currentText.substring(0, safeStart) + newTableText + currentText.substring(safeEnd)
+        val newCursor = safeStart + newTableText.length
+
+        onTextFieldValueChange(
+            TextFieldValue(
+                text = newFullText,
+                selection = TextRange(newCursor)
+            )
+        )
+        saveImmediately()
+        _activeEditingTable.value = null
     }
 
     fun insertAlignmentBlock(alignment: String) {
@@ -867,6 +1113,74 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
                 updatedAt = System.currentTimeMillis()
             )
             repository.insertDocument(copy)
+        }
+    }
+
+    /**
+     * Importa un archivo externo (.docx, .rtf, .tex, .md, .txt) desde el almacenamiento,
+     * lo guarda como nuevo documento en Room y notifica el nuevo ID para abrirlo.
+     */
+    fun importDocument(
+        context: android.content.Context,
+        uri: android.net.Uri,
+        onSuccess: (Long, String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val imported = com.example.util.DocumentImporter.importFromUri(context, uri)
+                val newDoc = DocumentEntity(
+                    title = imported.title,
+                    content = imported.content,
+                    paperType = "WHITE",
+                    fontStyle = "SERIF",
+                    fontSize = 16,
+                    lineSpacing = 1.5f,
+                    marginStyle = "NORMAL",
+                    alignment = "JUSTIFY",
+                    pageSize = "A4",
+                    wordsPerPage = 350,
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
+                )
+                val newId = repository.insertDocument(newDoc)
+                withContext(Dispatchers.Main) {
+                    onSuccess(newId, imported.formatName)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    onError(e.message ?: "Error al importar el documento")
+                }
+            }
+        }
+    }
+
+    /**
+     * Importa un archivo externo e inserta su contenido en la posición activa del editor.
+     */
+    fun importIntoCurrentDocument(
+        context: android.content.Context,
+        uri: android.net.Uri,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val imported = com.example.util.DocumentImporter.importFromUri(context, uri)
+                withContext(Dispatchers.Main) {
+                    val current = _editorContent.value
+                    val separator = if (current.isBlank() || current.endsWith("\n")) "" else "\n\n"
+                    onContentChanged(current + separator + imported.content)
+                    saveImmediately()
+                    onSuccess(imported.formatName)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    onError(e.message ?: "Error al importar el archivo")
+                }
+            }
         }
     }
 

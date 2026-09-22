@@ -108,13 +108,13 @@ fun DocuSheetSearchRadarBar(
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             // ==================================================================
-            // Fila 1: Campo de Búsqueda, Navegación Carrusel (← / →), Contador y Cierre
+            // Fila 1: Campo de Búsqueda de Ancho Completo con Botón de Cierre
             // ==================================================================
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Campo de texto de búsqueda
+                // Campo de texto de búsqueda dominante y espacioso
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
@@ -168,27 +168,57 @@ fun DocuSheetSearchRadarBar(
 
                 Spacer(modifier = Modifier.width(6.dp))
 
-                // Contador de posición estilo PC ("1 / 5")
+                // Botón Cerrar buscador (mínimo 48x48 dp)
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("search_close_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cerrar buscador",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // ==================================================================
+            // Fila 2: Contador de coincidencias y Botones Táctiles de Navegación
+            // ==================================================================
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Contador de posición ("1 de 5 encontradas")
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.padding(horizontal = 4.dp)
+                    modifier = Modifier.padding(vertical = 2.dp)
                 ) {
                     val countText = if (matches.isNotEmpty()) {
-                        "${currentIndex + 1}/${matches.size}"
+                        "${currentIndex + 1} de ${matches.size} encontradas"
                     } else if (searchQuery.isNotBlank()) {
-                        "0/0"
+                        "Sin coincidencias"
                     } else {
-                        "—"
+                        "Listo para buscar"
                     }
                     Text(
                         text = countText,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (matches.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        fontWeight = FontWeight.SemiBold,
+                        color = when {
+                            matches.isNotEmpty() -> MaterialTheme.colorScheme.primary
+                            searchQuery.isNotBlank() -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.outline
+                        }
                     )
                 }
+
+                Spacer(modifier = Modifier.weight(1f))
 
                 // Botón Anterior (mínimo 48x48 dp)
                 IconButton(
@@ -229,19 +259,6 @@ fun DocuSheetSearchRadarBar(
                         imageVector = Icons.Default.FindReplace,
                         contentDescription = "Mostrar barra de reemplazar",
                         tint = if (isReplaceExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                // Botón Cerrar (mínimo 48x48 dp)
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag("search_close_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Cerrar buscador"
                     )
                 }
             }

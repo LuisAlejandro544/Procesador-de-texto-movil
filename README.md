@@ -100,11 +100,21 @@
   - Cálculo de distribución métrica de columnas mediante el núcleo nativo en **C++20** (`computeTableColumnWidthsSafe`).
   - Sintaxis de marcado estructurada (`[table:style]...[/table]`) y compatibilidad con tablas estándar en Markdown (`| col 1 | col 2 |`).
 
-### 8. Sistema de Exportación Digital Multi-Formato (.PDF, .MD, .HTML y .TXT)
+### 8. Sistema Universal de Interoperabilidad: Importación y Exportación Multi-Formato (.DOCX, .RTF, .TEX, .PDF, .MD, .HTML y .TXT)
+- **Microsoft Word (.docx)**:
+  - *Exportación*: Generación nativa con empaquetado OpenXML comprimido en ZIP (`ZipOutputStream`), generando una estructura válida compatible con Microsoft Word, Google Docs, Apple Pages y LibreOffice Writer con tablas, jerarquías y colores.
+  - *Importación*: Extracción y lectura asíncrona de `word/document.xml` mediante `XmlPullParser`, traduciendo títulos, párrafos y tablas directamente a la hoja de papel de DocuSheet.
+- **Texto Enriquecido Universal (.rtf / Rich Text Format)**:
+  - *Exportación*: Documentos ofimáticos ligeros compatibles con WordPad, Word, TextEdit de Apple y cualquier editor, con cabecera RTF estándar, tabla de fuentes (`Calibri`, `Times New Roman`, `Courier New`), paleta cromática de 5 tintas, tablas formateadas con celdas y saltos de página físicos (`\page`).
+  - *Importación*: Parser de secuencias de escape RTF con soporte de caracteres ANSI/Unicode, negritas (`\b`), cursivas (`\i`), listas con viñetas y filas de tablas.
+- **LaTeX Académico y Científico (.tex)**:
+  - *Exportación*: Código fuente LaTeX limpio y compilable para pdfLaTeX y XeLaTeX en formato de imprenta A4 (`article`), con preámbulo en español (`babel`), paquetes matemáticos (`amsmath`), tablas académicas (`booktabs`), cuadros decorativos (`tcolorbox`) para figuras y diagramas de nodos, listas formateadas y caracteres especiales debidamente escapados.
+  - *Importación*: Parser estructurado que interpreta `\title`, `\section`, `\subsection`, `\subsubsection`, `\begin{tabular}`, `\item`, citas y estilos enriquecidos hacia el lienzo interactivo.
 - **Exportación a PDF Digital (.pdf)**: Generación nativa en resolución vectorial formato A4 estándar (595x842 pt), con saltos de página limpios, encabezado, pie de página formal y respeto de la tipografía seleccionada.
 - **Exportación a HTML Editorial Estructurado (.html)**: Creación de documentos web autosuficientes con hojas de estilo CSS integradas, diseñadas con maquetación de libro impreso (textura de papel, márgenes, tipografía cuidada, citas con bordes destacados y tablas estilizadas).
 - **Exportación a Documento de Texto Plano (.txt)**: Archivo universal sin etiquetas de marcado para máxima compatibilidad con cualquier editor de texto o sistema externo.
-- **Exportación a Markdown (.md)**: Archivo universal con cabecera de metadatos, fecha de exportación y estructura de párrafos.
+- **Exportación e Importación Markdown (.md)**: Archivo universal con cabecera de metadatos, fecha de exportación y estructura de párrafos.
+- **Importador Centralizado (`DocumentImporter`)**: Selector universal en la pantalla de inicio y en el diálogo de plantillas que detecta automáticamente extensiones y números mágicos de cabecera para abrir archivos externos sin fricción.
 - **Compartir Seguro mediante FileProvider**: Apertura y envío inmediato a cualquier aplicación del teléfono (Google Drive, WhatsApp, Adobe Reader, Correo o almacenamiento local).
 
 ### 9. Visor Nativo de PDF de Alta Fidelidad e Integración "Abrir Con" (Open With)
@@ -193,6 +203,40 @@
 - **Persistencia en Room Database v5**:
   - Entidad `MacroEntity`, `MacroDao`, repositorio asíncrono `MacroRepository` y migración incremental `MIGRATION_4_5`.
 
+### 14. Tipografía Avanzada de PC: Colores, Grosores y Efectos 3D
+- **Diálogo Interactivo Táctil de Estilo (`TextStyle3dDialog`)**:
+  - Panel flotante accesible desde la barra de formato del editor y desde la barra contextual de selección de PC.
+  - Previsualización en vivo en tiempo real del fragmento o muestra estilizada.
+- **Paleta Cromática de Tinta y Hexadecimal**:
+  - Selección de colores clásicos de imprenta (Negro Carbón, Azul Marino, Rojo Borgoña, Verde Bosque, Amatista, Oro Viejo, Terracota, etc.) y campo de código hexadecimal `#RRGGBB` para libertad cromática total (`[color:#HEX]...[/color]`).
+- **Control Gradual de Grosor Tipográfico (Font Weight)**:
+  - Selector de 9 niveles métricos de peso: Fino (Thin 100), Extra Ligero (ExtraLight 200), Ligero (Light 300), Normal (Normal 400), Medio (Medium 500), Semi-Negrita (SemiBold 600), Negrita (Bold 700), Extra Negrita (ExtraBold 800) y Negro (Black 900) con sintaxis estructurada `[weight:grosor]...[/weight]`.
+- **Relieve y Sombra Estereoscópica 3D**:
+  - Interruptor táctil de efecto 3D que proyecta sombras con ángulo, desenfoque y profundidad calculada (`[3d:#sombra,#relieve]...[/3d]`).
+  - Paleta dedicada para color de sombra estereoscópica y color de relieve frontal.
+  - Renderizado directo en la hoja de papel física en `PaperRichVisualTransformation.kt` con `androidx.compose.ui.graphics.Shadow` y renderizado vectorial idéntico en `DocumentExporter.kt` para impresión y PDF.
+
+### 15. Figuras Geométricas y Nodos de Diagrama de Flujo de PC
+- **Diálogo Especializado de Inserción (`InsertShapeOrNodeDialog`)**:
+  - Pestañas ergonómicas de acceso para **Figuras** y **Nodos**, con vista previa en miniatura a escala en tiempo real antes de insertar en la hoja.
+- **Catálogo de Figuras Geométricas Vectoriales**:
+  - Formas disponibles: *Rectángulo*, *Rectángulo redondeado*, *Círculo / Óvalo*, *Triángulo*, *Rombo / Diamante*, *Estrella de 5 puntas*, *Flecha a la Derecha*, *Flecha a la Izquierda* y *Llamada / Bocadillo de texto editorial*.
+  - **Personalización de PC**:
+    - Ajuste táctil independiente de **Ancho (W)** y **Alto (H)** en puntos (60 a 450 pt).
+    - Alineación física sobre la hoja: **Izquierda**, **Centrado** o **Derecha**.
+    - Color de fondo / relleno (Relleno blanco, ámbar suave, azul cielo, verde menta, pizarra, negro o transparente).
+    - Color de borde y contorno con grosor métrico.
+    - **Texto interior integrado**: Permite titular o anotar conceptos dentro de la propia figura geométrica.
+    - Sintaxis en la hoja: `[shape:tipo,w=...,h=...,align=...,fill=...,stroke=...]Texto interior[/shape]`.
+- **Diagramas de Nodos y Grafos de Flujo Secuenciales de PC**:
+  - Herramienta rápida para crear mapas conceptuales, diagramas de procesos y pipelines lógicos directamente en el procesador.
+  - Orientación flexible: **Horizontal** (cajas consecutivas enlazadas por flechas) o **Vertical** (secuencia vertical apilada).
+  - Personalización de color de cajas de nodo, color de trazos y líneas de conexión.
+  - Sintaxis limpia y legible: `[nodes:orientacion,color=...,line=...]Paso 1 -> Paso 2 -> Paso 3[/nodes]`.
+- **Renderizado Físico y Exportación Vectorial**:
+  - En pantalla: Renderizado con `Canvas` nativo de Compose integrado en el flujo de la hoja en `PaperSheet.kt` y `PaperBlockRenderer.kt`.
+  - En PDF digital: Renderizado vectorial nativo con `android.graphics.Canvas`, `Path` de trazado geométrico y pinceles de alta resolución en `DocumentExporter.kt`, garantizando calidad de imprenta sin pérdida de nitidez.
+
 ---
 
 ## 🛠️ Stack Tecnológico Multi-Lenguaje y Compilación Nativa
@@ -220,7 +264,7 @@
 - **Gestión Inteligente de Memoria y Caché**: `DocuSheetCacheManager` (política LRU, tope RAM 25%, poda de huérfanos y compresión balanceada)
 - **Procesamiento de Imágenes**: Android Photo Picker nativo (`PickVisualMedia`) + Coil Compose (`AsyncImage`)
 - **Formatos de Hoja y Paginación**: Catálogo `PageFormat` (A4, Letter, Legal, A5, Custom) con segmentación dinámica por palabras
-- **Exportación**: `android.graphics.pdf.PdfDocument` + `FileProvider`
+- **Interoperabilidad de Documentos**: Motores nativos OpenXML Word (`DocxHandler`), Rich Text Format (`RtfHandler`), LaTeX Científico (`LatexHandler`), `DocumentImporter` y `DocumentExporter` con `FileProvider` y `PdfDocument`
 - **Navegación**: Navigation Compose (Rutas desacopladas)
 - **Asincronía**: Kotlin Coroutines (`Dispatchers.IO`)
 - **Arquitecturas Compatibles**: `arm64-v8a` (64 bits), `armeabi-v7a` (32 bits), `x86_64`, `x86`.

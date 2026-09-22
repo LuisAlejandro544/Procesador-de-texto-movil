@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.outlined.FormatIndentIncreas
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.FontDownload
 import androidx.compose.material.icons.outlined.FormatAlignCenter
@@ -36,8 +37,10 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.HorizontalRule
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.NoteAdd
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Subscript
 import androidx.compose.material.icons.outlined.Superscript
+import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material.icons.outlined.Title
 import androidx.compose.material.icons.outlined.Today
@@ -90,6 +93,8 @@ fun EditorFormattingToolbar(
     onSetGlobalFont: (String) -> Unit,
     onOpenImageDialog: () -> Unit,
     onOpenTableDialog: () -> Unit,
+    isCursorInTable: Boolean = false,
+    onEditCurrentTable: (() -> Unit)? = null,
     onInsertBullet: () -> Unit,
     onInsertNumberedList: () -> Unit,
     onInsertChecklist: () -> Unit,
@@ -99,6 +104,8 @@ fun EditorFormattingToolbar(
     onOpenMacros: () -> Unit,
     onInsertDivider: () -> Unit,
     onCycleZoom: () -> Unit,
+    onOpenColor3dDialog: () -> Unit = {},
+    onOpenShapeNodeDialog: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showAlignMenu by remember { mutableStateOf(false) }
@@ -166,6 +173,7 @@ fun EditorFormattingToolbar(
                 QuickToolButton(icon = Icons.Outlined.FormatStrikethrough, label = "Tachado", onClick = onInsertStrikethrough)
                 QuickToolButton(icon = Icons.Outlined.Subscript, label = "Subíndice", onClick = onInsertSubscript)
                 QuickToolButton(icon = Icons.Outlined.Superscript, label = "Superíndice", onClick = onInsertSuperscript)
+                QuickToolButton(icon = Icons.Outlined.Palette, label = "Color / 3D", onClick = onOpenColor3dDialog)
 
                 // Alineación
                 Box {
@@ -319,7 +327,27 @@ fun EditorFormattingToolbar(
 
                 // Elementos Multimedia y Estructuras
                 QuickToolButton(icon = Icons.Outlined.Image, label = "Insertar Imagen", onClick = onOpenImageDialog)
-                QuickToolButton(icon = Icons.Outlined.GridView, label = "Insertar Tabla", onClick = onOpenTableDialog)
+                QuickToolButton(icon = Icons.Outlined.Category, label = "Figuras / Nodos", onClick = onOpenShapeNodeDialog)
+
+                if (isCursorInTable && onEditCurrentTable != null) {
+                    QuickToolButton(
+                        icon = Icons.Outlined.TableChart,
+                        label = "Editar Tabla",
+                        onClick = onEditCurrentTable,
+                        isHighlighted = true
+                    )
+                    QuickToolButton(
+                        icon = Icons.Outlined.GridView,
+                        label = "+ Nueva",
+                        onClick = onOpenTableDialog
+                    )
+                } else {
+                    QuickToolButton(
+                        icon = Icons.Outlined.GridView,
+                        label = "Insertar Tabla",
+                        onClick = onOpenTableDialog
+                    )
+                }
 
                 // Listas y bloques
                 QuickToolButton(icon = Icons.Outlined.FormatListBulleted, label = "Viñeta", onClick = onInsertBullet)
@@ -355,12 +383,19 @@ fun EditorFormattingToolbar(
 private fun QuickToolButton(
     icon: ImageVector,
     label: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    isHighlighted: Boolean = false
 ) {
     FilterChip(
-        selected = false,
+        selected = isHighlighted,
         onClick = onClick,
-        label = { Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium) },
+        label = {
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Medium
+            )
+        },
         leadingIcon = {
             Icon(
                 imageVector = icon,
@@ -371,7 +406,9 @@ private fun QuickToolButton(
         shape = RoundedCornerShape(16.dp),
         colors = FilterChipDefaults.filterChipColors(
             containerColor = MaterialTheme.colorScheme.surface,
-            labelColor = MaterialTheme.colorScheme.onSurface
+            labelColor = MaterialTheme.colorScheme.onSurface,
+            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
         )
     )
 }

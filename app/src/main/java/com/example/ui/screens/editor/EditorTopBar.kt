@@ -298,6 +298,96 @@ fun EditorTopBar(
                     )
 
                     DropdownMenuItem(
+                        text = { Text("Exportar como Word (.docx)") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Description,
+                                contentDescription = null,
+                                tint = Color(0xFF2563EB)
+                            )
+                        },
+                        onClick = {
+                            showExportMenu = false
+                            onBeforeExport()
+                            val uri = DocumentExporter.exportToDocx(
+                                context = context,
+                                title = title,
+                                content = content
+                            )
+                            if (uri != null) {
+                                DocumentExporter.shareExportedFile(
+                                    context = context,
+                                    uri = uri,
+                                    mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    title = "$title.docx"
+                                )
+                            } else {
+                                Toast.makeText(context, "Error al generar el archivo .docx", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+
+                    DropdownMenuItem(
+                        text = { Text("Exportar como Texto Enriquecido (.rtf)") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.TextSnippet,
+                                contentDescription = null,
+                                tint = Color(0xFF7C3AED)
+                            )
+                        },
+                        onClick = {
+                            showExportMenu = false
+                            onBeforeExport()
+                            val uri = DocumentExporter.exportToRtf(
+                                context = context,
+                                title = title,
+                                content = content
+                            )
+                            if (uri != null) {
+                                DocumentExporter.shareExportedFile(
+                                    context = context,
+                                    uri = uri,
+                                    mimeType = "application/rtf",
+                                    title = "$title.rtf"
+                                )
+                            } else {
+                                Toast.makeText(context, "Error al generar el archivo .rtf", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+
+                    DropdownMenuItem(
+                        text = { Text("Exportar como LaTeX Académico (.tex)") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Tune,
+                                contentDescription = null,
+                                tint = Color(0xFF15803D)
+                            )
+                        },
+                        onClick = {
+                            showExportMenu = false
+                            onBeforeExport()
+                            val uri = DocumentExporter.exportToLatex(
+                                context = context,
+                                title = title,
+                                content = content
+                            )
+                            if (uri != null) {
+                                DocumentExporter.shareExportedFile(
+                                    context = context,
+                                    uri = uri,
+                                    mimeType = "text/x-tex",
+                                    title = "$title.tex"
+                                )
+                            } else {
+                                Toast.makeText(context, "Error al generar el archivo .tex", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+
+                    DropdownMenuItem(
                         text = { Text("Exportar como Documento Texto (.txt)") },
                         leadingIcon = {
                             Icon(

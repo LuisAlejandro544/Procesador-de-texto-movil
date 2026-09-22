@@ -99,6 +99,20 @@ DocuSheet es un procesador de textos para Android cuyo objetivo primordial es re
 
 ---
 
+16. **Tipografía Avanzada 3D, Figuras Geométricas y Nodos de Diagrama de PC**:
+    - Diálogo interactivo táctil `TextStyle3dDialog.kt` para colores cromáticos de imprenta, códigos hexadecimales `#HEX`, 9 niveles métricos de grosor de letra (`[weight:...]`) y motor estereoscópico de sombras y relieve 3D (`[3d:#sombra,#relieve]`).
+    - Diálogo interactivo de figuras y grafos de flujo `InsertShapeOrNodeDialog.kt` con 9 formas vectoriales (rectángulos, círculos, triángulos, rombos, estrellas, flechas, llamadas de texto con texto interno) y diagramas de nodos conectados por flechas estilizadas en orientación horizontal o vertical (`[shape:...]`, `[nodes:...]`).
+    - Renderizado interactivo sobre la hoja física con `Canvas` nativo y exportación vectorial multipágina nítida en `DocumentExporter.kt` para PDF digital sin pérdida de resolución.
+
+17. **Interoperabilidad Universal de Documentos (.DOCX, .RTF, .TEX, .MD, .TXT)**:
+    - **Microsoft Word (.docx)**: Módulo `DocxHandler.kt` con empaquetado OpenXML comprimido en ZIP e importador asíncrono con `XmlPullParser` para extraer párrafos, títulos y tablas.
+    - **Rich Text Format (.rtf)**: Módulo `RtfHandler.kt` para exportación estructurada con tabla de fuentes, tabla cromática, tablas formateadas con celdas y filas y saltos de página, con parser de decodificación de comandos RTF y caracteres Unicode para importación.
+    - **LaTeX Científico y Académico (.tex)**: Módulo `LatexHandler.kt` con preámbulo formal (`article`, A4, `babel[spanish]`, `amsmath`, `booktabs`, `tcolorbox`, `enumitem` y `hyperref`) y parser de importación para interpretar títulos, secciones, listas y tablas a la sintaxis del procesador.
+    - **Coordinador Universal de Importación (`DocumentImporter.kt`)**: Facade que detecta automáticamente tipos MIME, extensiones y firmas de archivo (`PK..`, `{\rtf`, `\documentclass`) para importar documentos directamente a la base de datos o al editor activo en segundo plano (`Dispatchers.IO`).
+    - **Integración Táctil Móvil**: Botón de importación en la barra superior de `DocumentListScreen`, opción en el diálogo de plantillas de nueva hoja, botón en el estado vacío y opciones completas de exportación en el menú del editor (`EditorTopBar`).
+
+---
+
 ## 🛡️ Reglas y Restricciones Estrictas
 
 - **Derechos de autor**: No utilizar marcas registradas de terceros en nombres de clases, archivos o cadenas de texto. El proyecto se llama y se identifica como **DocuSheet**.

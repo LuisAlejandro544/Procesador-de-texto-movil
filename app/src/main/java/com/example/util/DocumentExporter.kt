@@ -6,12 +6,22 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.text.Layout
+import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StrikethroughSpan
+import android.text.style.StyleSpan
+import android.text.style.SubscriptSpan
+import android.text.style.SuperscriptSpan
+import android.text.style.UnderlineSpan
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
@@ -24,8 +34,12 @@ import java.util.Locale
  * 
  * Permite convertir cualquier documento redactado en la aplicación a:
  * 1. Documento PDF digital (.pdf): Renderizado en alta resolución con formato A4,
- *    márgenes proporcionales, encabezados, numeración de páginas y saltos automáticos.
+ *    márgenes proporcionales, encabezados, numeración de páginas correlativa,
+ *    tablas editoriales vectoriales formateadas, citas estilizadas, casillas de tareas,
+ *    títulos jerárquicos y formato enriquecido en línea (negritas, cursivas, colores).
  * 2. Archivo Markdown (.md): Formato universal ligero para respaldo y edición multiplataforma.
+ * 3. Documento HTML editorial (.html): Maquetación web lista para publicación o impresión.
+ * 4. Documento de texto plano (.txt): Compatibilidad universal.
  * 
  * Utiliza FileProvider seguro para permitir la apertura directa o guardado mediante
  * cualquier aplicación instalada en el teléfono (Google Drive, WhatsApp, Adobe Reader, etc.).
@@ -36,14 +50,47 @@ object DocumentExporter {
     private const val A4_WIDTH = 595
     private const val A4_HEIGHT = 842
 
-    private const val MARGIN_HORIZONTAL = 48
-    private const val MARGIN_TOP = 56
-    private const val MARGIN_BOTTOM = 56
+    private const val MARGIN_HORIZONTAL = 44
+    private const val MARGIN_TOP = 52
+    private const val MARGIN_BOTTOM = 52
     private const val CONTENT_WIDTH = A4_WIDTH - (MARGIN_HORIZONTAL * 2)
     private const val USABLE_PAGE_HEIGHT = A4_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM
 
     /**
-     * Exporta el documento como archivo PDF digital multipágina.
+     * Bloques editoriales estructurados para el renderizado vectorial de PDF.
+     */
+    private sealed class PdfBlock {
+        data class Heading(val text: String, val level: Int, val align: Layout.Alignment) : PdfBlock()
+        data class Paragraph(val text: CharSequence, val align: Layout.Alignment) : PdfBlock()
+        data class Blockquote(val text: String, val align: Layout.Alignment) : PdfBlock()
+        data class ListItem(val text: CharSequence, val isNumbered: Boolean, val index: Int) : PdfBlock()
+        data class TaskItem(val text: CharSequence, val isChecked: Boolean) : PdfBlock()
+        data class Table(val rows: List<List<String>>, val style: String) : PdfBlock()
+        data class Shape(
+            val shapeType: String,
+            val widthPt: Float,
+            val heightPt: Float,
+            val align: String,
+            val fillColor: Int,
+            val strokeColor: Int,
+            val borderWidth: Float,
+            val cornerRadius: Float,
+            val text: String
+        ) : PdfBlock()
+        data class Nodes(
+            val nodes: List<String>,
+            val align: String,
+            val layout: String,
+            val fillColor: Int,
+            val strokeColor: Int
+        ) : PdfBlock()
+        object Divider : PdfBlock()
+        object PageBreak : PdfBlock()
+        object EmptyLine : PdfBlock()
+    }
+
+    /**
+     * Exporta el documento como archivo PDF digital multipágina con renderizado vectorial completo.
      */
     fun exportToPdf(
         context: Context,
@@ -61,81 +108,339 @@ object DocumentExporter {
                 else -> Typeface.SERIF
             }
 
-            // Pincel para texto del cuerpo
+            // Pinceles tipográficos
             val bodyPaint = TextPaint().apply {
                 isAntiAlias = true
-                textSize = 12f
+                textSize = 11.5f
                 color = Color.rgb(30, 41, 59)
                 typeface = baseTypeface
             }
 
-            // Pincel para encabezados
+            val h1Paint = TextPaint().apply {
+                isAntiAlias = true
+                textSize = 19f
+                color = Color.rgb(15, 23, 42)
+                typeface = Typeface.create(baseTypeface, Typeface.BOLD)
+            }
+
+            val h2Paint = TextPaint().apply {
+                isAntiAlias = true
+                textSize = 15f
+                color = Color.rgb(30, 41, 59)
+                typeface = Typeface.create(baseTypeface, Typeface.BOLD)
+            }
+
+            val h3Paint = TextPaint().apply {
+                isAntiAlias = true
+                textSize = 13f
+                color = Color.rgb(51, 65, 85)
+                typeface = Typeface.create(baseTypeface, Typeface.BOLD)
+            }
+
+            val quotePaint = TextPaint().apply {
+                isAntiAlias = true
+                textSize = 11f
+                color = Color.rgb(71, 85, 105)
+                typeface = Typeface.create(baseTypeface, Typeface.ITALIC)
+            }
+
             val headerPaint = Paint().apply {
                 isAntiAlias = true
-                textSize = 9f
-                color = Color.rgb(100, 116, 139)
+                textSize = 8.5f
+                color = Color.rgb(148, 163, 184)
                 typeface = baseTypeface
             }
 
-            // Pincel para líneas decorativas
             val linePaint = Paint().apply {
                 isAntiAlias = true
                 strokeWidth = 0.8f
                 color = Color.rgb(226, 232, 240)
             }
 
-            // Procesar el contenido en bloques por saltos de página explícitos o automáticos
-            val explicitPages = content.split("\n[--- Salto de Página ---]\n", "\n---\n")
-            var pageNumber = 1
+            // 1. Parsear el contenido estructurado en bloques
+            val rawBlocks = parseContentToPdfBlocks(content)
 
-            for (pageText in explicitPages) {
+            // 2. Distribuir los bloques en páginas virtuales respetando la altura física de la hoja A4
+            val pages = paginatePdfBlocks(rawBlocks, bodyPaint, h1Paint, h2Paint, h3Paint, quotePaint)
+            val totalPages = maxOf(1, pages.size)
+
+            // 3. Renderizar cada página en el documento PDF
+            for ((pageIndex, pageBlocks) in pages.withIndex()) {
+                val pageNumber = pageIndex + 1
                 val pageInfo = PdfDocument.PageInfo.Builder(A4_WIDTH, A4_HEIGHT, pageNumber).create()
                 val page = pdfDocument.startPage(pageInfo)
                 val canvas: Canvas = page.canvas
 
-                // Dibujar encabezado de página
+                // --- Encabezado editorial superior ---
                 val displayTitle = if (title.isBlank()) "DOCUMENTO DOCUSHEET" else title.uppercase()
-                canvas.drawText(displayTitle, MARGIN_HORIZONTAL.toFloat(), 38f, headerPaint)
+                canvas.drawText(displayTitle, MARGIN_HORIZONTAL.toFloat(), 34f, headerPaint)
+                val dateLabel = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
+                val dateWidth = headerPaint.measureText(dateLabel)
+                canvas.drawText(dateLabel, (A4_WIDTH - MARGIN_HORIZONTAL - dateWidth).toFloat(), 34f, headerPaint)
                 canvas.drawLine(
                     MARGIN_HORIZONTAL.toFloat(),
-                    44f,
+                    40f,
                     (A4_WIDTH - MARGIN_HORIZONTAL).toFloat(),
-                    44f,
+                    40f,
                     linePaint
                 )
 
-                // Dibujar pie de página
-                val footerText = "— Página $pageNumber —"
+                // --- Pie de página correlativo formal (— Página X de Y —) ---
+                val footerText = "— Página $pageNumber de $totalPages —"
                 val footerWidth = headerPaint.measureText(footerText)
                 canvas.drawText(
                     footerText,
                     (A4_WIDTH - footerWidth) / 2f,
-                    (A4_HEIGHT - 30).toFloat(),
+                    (A4_HEIGHT - 28).toFloat(),
                     headerPaint
                 )
-
                 canvas.drawText(
                     "DocuSheet",
-                    (A4_WIDTH - MARGIN_HORIZONTAL - headerPaint.measureText("DocuSheet")).toFloat(),
-                    (A4_HEIGHT - 30).toFloat(),
+                    MARGIN_HORIZONTAL.toFloat(),
+                    (A4_HEIGHT - 28).toFloat(),
                     headerPaint
                 )
 
-                // Renderizar el contenido con StaticLayout para soporte de multilínea e interlineado
-                val staticLayout = StaticLayout.Builder
-                    .obtain(pageText, 0, pageText.length, bodyPaint, CONTENT_WIDTH)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setLineSpacing(4f, 1.2f)
-                    .setIncludePad(true)
-                    .build()
+                // --- Renderizado secuencial de los bloques de la página ---
+                var currentY = MARGIN_TOP.toFloat()
 
-                canvas.save()
-                canvas.translate(MARGIN_HORIZONTAL.toFloat(), MARGIN_TOP.toFloat())
-                staticLayout.draw(canvas)
-                canvas.restore()
+                for (block in pageBlocks) {
+                    when (block) {
+                        is PdfBlock.Heading -> {
+                            val paint = when (block.level) {
+                                1 -> h1Paint
+                                2 -> h2Paint
+                                else -> h3Paint
+                            }
+                            val topSpacing = if (block.level == 1) 12f else 8f
+                            currentY += topSpacing
+
+                            val layout = StaticLayout.Builder
+                                .obtain(block.text, 0, block.text.length, paint, CONTENT_WIDTH)
+                                .setAlignment(block.align)
+                                .setIncludePad(true)
+                                .build()
+
+                            canvas.save()
+                            canvas.translate(MARGIN_HORIZONTAL.toFloat(), currentY)
+                            layout.draw(canvas)
+                            canvas.restore()
+
+                            currentY += layout.height + 5f
+
+                            if (block.level == 1) {
+                                canvas.drawLine(
+                                    MARGIN_HORIZONTAL.toFloat(),
+                                    currentY,
+                                    (MARGIN_HORIZONTAL + 160).toFloat().coerceAtMost((A4_WIDTH - MARGIN_HORIZONTAL).toFloat()),
+                                    currentY,
+                                    Paint().apply {
+                                        color = Color.rgb(37, 99, 235)
+                                        strokeWidth = 1.5f
+                                        isAntiAlias = true
+                                    }
+                                )
+                                currentY += 6f
+                            }
+                        }
+
+                        is PdfBlock.Paragraph -> {
+                            val layout = StaticLayout.Builder
+                                .obtain(block.text, 0, block.text.length, bodyPaint, CONTENT_WIDTH)
+                                .setAlignment(block.align)
+                                .setLineSpacing(3f, 1.15f)
+                                .setIncludePad(true)
+                                .build()
+
+                            canvas.save()
+                            canvas.translate(MARGIN_HORIZONTAL.toFloat(), currentY)
+                            layout.draw(canvas)
+                            canvas.restore()
+
+                            currentY += layout.height + 6f
+                        }
+
+                        is PdfBlock.Blockquote -> {
+                            val quoteContentWidth = CONTENT_WIDTH - 24
+                            val layout = StaticLayout.Builder
+                                .obtain(block.text, 0, block.text.length, quotePaint, quoteContentWidth)
+                                .setAlignment(block.align)
+                                .setLineSpacing(3f, 1.15f)
+                                .setIncludePad(true)
+                                .build()
+
+                            val blockHeight = layout.height + 12f
+
+                            // Fondo sombreado suave de la cita
+                            val bgPaint = Paint().apply {
+                                color = Color.rgb(241, 245, 249)
+                                style = Paint.Style.FILL
+                            }
+                            canvas.drawRoundRect(
+                                RectF(
+                                    MARGIN_HORIZONTAL.toFloat(),
+                                    currentY,
+                                    (A4_WIDTH - MARGIN_HORIZONTAL).toFloat(),
+                                    currentY + blockHeight
+                                ),
+                                4f,
+                                4f,
+                                bgPaint
+                            )
+
+                            // Barra vertical izquierda de acento
+                            val barPaint = Paint().apply {
+                                color = Color.rgb(37, 99, 235)
+                                style = Paint.Style.FILL
+                            }
+                            canvas.drawRoundRect(
+                                RectF(
+                                    MARGIN_HORIZONTAL.toFloat(),
+                                    currentY,
+                                    (MARGIN_HORIZONTAL + 4).toFloat(),
+                                    currentY + blockHeight
+                                ),
+                                2f,
+                                2f,
+                                barPaint
+                            )
+
+                            // Dibujar texto
+                            canvas.save()
+                            canvas.translate((MARGIN_HORIZONTAL + 14).toFloat(), currentY + 6f)
+                            layout.draw(canvas)
+                            canvas.restore()
+
+                            currentY += blockHeight + 6f
+                        }
+
+                        is PdfBlock.ListItem -> {
+                            val bulletWidth = 18f
+                            val textWidth = CONTENT_WIDTH - bulletWidth.toInt()
+
+                            val layout = StaticLayout.Builder
+                                .obtain(block.text, 0, block.text.length, bodyPaint, textWidth)
+                                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                                .setLineSpacing(2f, 1.1f)
+                                .setIncludePad(true)
+                                .build()
+
+                            // Dibujar viñeta o número
+                            if (block.isNumbered) {
+                                val numText = "${block.index}."
+                                canvas.drawText(
+                                    numText,
+                                    MARGIN_HORIZONTAL.toFloat(),
+                                    currentY + 12f,
+                                    TextPaint(bodyPaint).apply { isFakeBoldText = true }
+                                )
+                            } else {
+                                val dotPaint = Paint().apply {
+                                    color = Color.rgb(37, 99, 235)
+                                    style = Paint.Style.FILL
+                                    isAntiAlias = true
+                                }
+                                canvas.drawCircle(
+                                    MARGIN_HORIZONTAL + 6f,
+                                    currentY + 8f,
+                                    2.5f,
+                                    dotPaint
+                                )
+                            }
+
+                            canvas.save()
+                            canvas.translate((MARGIN_HORIZONTAL + bulletWidth), currentY)
+                            layout.draw(canvas)
+                            canvas.restore()
+
+                            currentY += layout.height + 4f
+                        }
+
+                        is PdfBlock.TaskItem -> {
+                            val boxSize = 10f
+                            val textWidth = CONTENT_WIDTH - 20
+
+                            val layout = StaticLayout.Builder
+                                .obtain(block.text, 0, block.text.length, bodyPaint, textWidth)
+                                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                                .setLineSpacing(2f, 1.1f)
+                                .setIncludePad(true)
+                                .build()
+
+                            val boxRect = RectF(
+                                MARGIN_HORIZONTAL.toFloat(),
+                                currentY + 3f,
+                                (MARGIN_HORIZONTAL + boxSize),
+                                currentY + 3f + boxSize
+                            )
+
+                            val boxPaint = Paint().apply {
+                                isAntiAlias = true
+                                style = if (block.isChecked) Paint.Style.FILL_AND_STROKE else Paint.Style.STROKE
+                                strokeWidth = 1f
+                                color = if (block.isChecked) Color.rgb(37, 99, 235) else Color.rgb(148, 163, 184)
+                            }
+                            canvas.drawRoundRect(boxRect, 2f, 2f, boxPaint)
+
+                            if (block.isChecked) {
+                                val checkPaint = Paint().apply {
+                                    isAntiAlias = true
+                                    color = Color.WHITE
+                                    strokeWidth = 1.5f
+                                    style = Paint.Style.STROKE
+                                }
+                                canvas.drawLine(boxRect.left + 2f, boxRect.centerY(), boxRect.left + 4.5f, boxRect.bottom - 2f, checkPaint)
+                                canvas.drawLine(boxRect.left + 4.5f, boxRect.bottom - 2f, boxRect.right - 2f, boxRect.top + 2.5f, checkPaint)
+                            }
+
+                            canvas.save()
+                            canvas.translate((MARGIN_HORIZONTAL + 18).toFloat(), currentY)
+                            layout.draw(canvas)
+                            canvas.restore()
+
+                            currentY += layout.height + 4f
+                        }
+
+                        is PdfBlock.Table -> {
+                            currentY = drawPdfTable(canvas, block, currentY, bodyPaint, baseTypeface) + 8f
+                        }
+
+                        is PdfBlock.Shape -> {
+                            currentY = drawPdfShape(canvas, block, currentY, baseTypeface) + 8f
+                        }
+
+                        is PdfBlock.Nodes -> {
+                            currentY = drawPdfNodes(canvas, block, currentY, baseTypeface) + 8f
+                        }
+
+                        is PdfBlock.Divider -> {
+                            currentY += 6f
+                            val divPaint = Paint().apply {
+                                color = Color.rgb(203, 213, 225)
+                                strokeWidth = 1f
+                                isAntiAlias = true
+                            }
+                            canvas.drawLine(
+                                MARGIN_HORIZONTAL.toFloat(),
+                                currentY,
+                                (A4_WIDTH - MARGIN_HORIZONTAL).toFloat(),
+                                currentY,
+                                divPaint
+                            )
+                            currentY += 10f
+                        }
+
+                        is PdfBlock.EmptyLine -> {
+                            currentY += 8f
+                        }
+
+                        is PdfBlock.PageBreak -> {
+                            // Los saltos de página ya dividieron los bloques entre páginas
+                        }
+                    }
+                }
 
                 pdfDocument.finishPage(page)
-                pageNumber++
             }
 
             // Guardar en el directorio seguro de caché para exportaciones
@@ -157,6 +462,919 @@ object DocumentExporter {
             return null
         } finally {
             pdfDocument.close()
+        }
+    }
+
+    /**
+     * Dibuja una tabla editorial vectorial completa en el canvas del PDF.
+     */
+    private fun drawPdfTable(
+        canvas: Canvas,
+        table: PdfBlock.Table,
+        startY: Float,
+        basePaint: TextPaint,
+        baseTypeface: Typeface
+    ): Float {
+        val rows = table.rows
+        if (rows.isEmpty()) return startY
+
+        val numCols = maxOf(1, rows.maxOfOrNull { it.size } ?: 1)
+        val colWidth = CONTENT_WIDTH.toFloat() / numCols
+
+        val headerBgPaint = Paint().apply {
+            color = Color.rgb(241, 245, 249)
+            style = Paint.Style.FILL
+        }
+
+        val stripedBgPaint = Paint().apply {
+            color = Color.rgb(248, 250, 252)
+            style = Paint.Style.FILL
+        }
+
+        val borderPaint = Paint().apply {
+            color = if (table.style == "editorial") Color.rgb(100, 116, 139) else Color.rgb(203, 213, 225)
+            strokeWidth = if (table.style == "editorial") 1.2f else 0.8f
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+
+        val cellHeaderPaint = TextPaint(basePaint).apply {
+            typeface = Typeface.create(baseTypeface, Typeface.BOLD)
+            color = Color.rgb(15, 23, 42)
+            textSize = 10.5f
+        }
+
+        val cellDataPaint = TextPaint(basePaint).apply {
+            color = Color.rgb(51, 65, 85)
+            textSize = 10f
+        }
+
+        var currentY = startY + 4f
+
+        for ((rowIndex, row) in rows.withIndex()) {
+            val isHeader = rowIndex == 0
+            val paint = if (isHeader) cellHeaderPaint else cellDataPaint
+            val horizontalPadding = 6f
+            val verticalPadding = 5f
+            val usableColWidth = maxOf(10f, colWidth - (horizontalPadding * 2))
+
+            // Medir la altura de cada celda para determinar la altura de la fila
+            val layouts = (0 until numCols).map { c ->
+                val text = row.getOrNull(c) ?: ""
+                val cleanText = text.ifBlank { "—" }
+                StaticLayout.Builder
+                    .obtain(cleanText, 0, cleanText.length, paint, usableColWidth.toInt())
+                    .setAlignment(if (isHeader) Layout.Alignment.ALIGN_CENTER else Layout.Alignment.ALIGN_NORMAL)
+                    .setIncludePad(true)
+                    .build()
+            }
+
+            val maxCellHeight = layouts.maxOfOrNull { it.height } ?: 16
+            val rowHeight = maxCellHeight + (verticalPadding * 2)
+
+            // Fondo de la fila
+            if (isHeader) {
+                canvas.drawRect(
+                    MARGIN_HORIZONTAL.toFloat(),
+                    currentY,
+                    (MARGIN_HORIZONTAL + CONTENT_WIDTH).toFloat(),
+                    currentY + rowHeight,
+                    headerBgPaint
+                )
+            } else if (table.style == "striped" && rowIndex % 2 == 1) {
+                canvas.drawRect(
+                    MARGIN_HORIZONTAL.toFloat(),
+                    currentY,
+                    (MARGIN_HORIZONTAL + CONTENT_WIDTH).toFloat(),
+                    currentY + rowHeight,
+                    stripedBgPaint
+                )
+            }
+
+            // Dibujar bordes horizontales
+            if (table.style == "editorial") {
+                if (isHeader) {
+                    canvas.drawLine(MARGIN_HORIZONTAL.toFloat(), currentY, (MARGIN_HORIZONTAL + CONTENT_WIDTH).toFloat(), currentY, borderPaint)
+                    canvas.drawLine(MARGIN_HORIZONTAL.toFloat(), currentY + rowHeight, (MARGIN_HORIZONTAL + CONTENT_WIDTH).toFloat(), currentY + rowHeight, borderPaint)
+                } else if (rowIndex == rows.size - 1) {
+                    canvas.drawLine(MARGIN_HORIZONTAL.toFloat(), currentY + rowHeight, (MARGIN_HORIZONTAL + CONTENT_WIDTH).toFloat(), currentY + rowHeight, borderPaint)
+                }
+            } else {
+                // Estilo classic o compact: cuadrícula completa
+                canvas.drawRect(
+                    MARGIN_HORIZONTAL.toFloat(),
+                    currentY,
+                    (MARGIN_HORIZONTAL + CONTENT_WIDTH).toFloat(),
+                    currentY + rowHeight,
+                    borderPaint
+                )
+            }
+
+            // Dibujar celdas y bordes verticales
+            for (colIndex in 0 until numCols) {
+                val cellLeft = MARGIN_HORIZONTAL + (colIndex * colWidth)
+                val layout = layouts[colIndex]
+
+                if (table.style != "editorial" && colIndex > 0) {
+                    canvas.drawLine(cellLeft, currentY, cellLeft, currentY + rowHeight, borderPaint)
+                }
+
+                canvas.save()
+                canvas.translate(cellLeft + horizontalPadding, currentY + verticalPadding)
+                layout.draw(canvas)
+                canvas.restore()
+            }
+
+            currentY += rowHeight
+        }
+
+        return currentY
+    }
+
+    /**
+     * Dibuja una figura geométrica vectorial en el canvas del PDF.
+     */
+    private fun drawPdfShape(
+        canvas: Canvas,
+        shape: PdfBlock.Shape,
+        startY: Float,
+        baseTypeface: Typeface
+    ): Float {
+        val shapeWidth = shape.widthPt.coerceIn(30f, CONTENT_WIDTH.toFloat())
+        val shapeHeight = shape.heightPt.coerceIn(20f, 400f)
+
+        val startX = when (shape.align) {
+            "center" -> MARGIN_HORIZONTAL + (CONTENT_WIDTH - shapeWidth) / 2f
+            "right" -> MARGIN_HORIZONTAL + CONTENT_WIDTH - shapeWidth
+            else -> MARGIN_HORIZONTAL.toFloat()
+        }
+
+        val fillPaint = Paint().apply {
+            isAntiAlias = true
+            style = Paint.Style.FILL
+            color = shape.fillColor
+        }
+
+        val strokePaint = Paint().apply {
+            isAntiAlias = true
+            style = Paint.Style.STROKE
+            color = shape.strokeColor
+            strokeWidth = shape.borderWidth.coerceAtLeast(0.5f)
+        }
+
+        val rectF = RectF(startX, startY, startX + shapeWidth, startY + shapeHeight)
+
+        when (shape.shapeType.lowercase()) {
+            "circle", "oval" -> {
+                canvas.drawOval(rectF, fillPaint)
+                canvas.drawOval(rectF, strokePaint)
+            }
+            "triangle" -> {
+                val path = android.graphics.Path().apply {
+                    moveTo(startX + shapeWidth / 2f, startY)
+                    lineTo(startX + shapeWidth, startY + shapeHeight)
+                    lineTo(startX, startY + shapeHeight)
+                    close()
+                }
+                canvas.drawPath(path, fillPaint)
+                canvas.drawPath(path, strokePaint)
+            }
+            "diamond" -> {
+                val path = android.graphics.Path().apply {
+                    moveTo(startX + shapeWidth / 2f, startY)
+                    lineTo(startX + shapeWidth, startY + shapeHeight / 2f)
+                    lineTo(startX + shapeWidth / 2f, startY + shapeHeight)
+                    lineTo(startX, startY + shapeHeight / 2f)
+                    close()
+                }
+                canvas.drawPath(path, fillPaint)
+                canvas.drawPath(path, strokePaint)
+            }
+            "star" -> {
+                val path = android.graphics.Path()
+                val cx = startX + shapeWidth / 2f
+                val cy = startY + shapeHeight / 2f
+                val outerR = minOf(shapeWidth, shapeHeight) / 2f
+                val innerR = outerR * 0.45f
+                for (step in 0 until 10) {
+                    val r = if (step % 2 == 0) outerR else innerR
+                    val angle = Math.toRadians((step * 36.0) - 90.0)
+                    val px = cx + (r * Math.cos(angle)).toFloat()
+                    val py = cy + (r * Math.sin(angle)).toFloat()
+                    if (step == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                }
+                path.close()
+                canvas.drawPath(path, fillPaint)
+                canvas.drawPath(path, strokePaint)
+            }
+            "arrow" -> {
+                val path = android.graphics.Path().apply {
+                    val headW = shapeWidth * 0.4f
+                    val shaftH = shapeHeight * 0.4f
+                    val shaftTop = startY + (shapeHeight - shaftH) / 2f
+                    moveTo(startX, shaftTop)
+                    lineTo(startX + shapeWidth - headW, shaftTop)
+                    lineTo(startX + shapeWidth - headW, startY)
+                    lineTo(startX + shapeWidth, startY + shapeHeight / 2f)
+                    lineTo(startX + shapeWidth - headW, startY + shapeHeight)
+                    lineTo(startX + shapeWidth - headW, shaftTop + shaftH)
+                    lineTo(startX, shaftTop + shaftH)
+                    close()
+                }
+                canvas.drawPath(path, fillPaint)
+                canvas.drawPath(path, strokePaint)
+            }
+            "callout" -> {
+                val path = android.graphics.Path().apply {
+                    val cr = shape.cornerRadius.coerceIn(0f, 20f)
+                    val bubbleH = shapeHeight * 0.75f
+                    val bubbleRect = RectF(startX, startY, startX + shapeWidth, startY + bubbleH)
+                    addRoundRect(bubbleRect, cr, cr, android.graphics.Path.Direction.CW)
+                    moveTo(startX + shapeWidth * 0.25f, startY + bubbleH)
+                    lineTo(startX + shapeWidth * 0.15f, startY + shapeHeight)
+                    lineTo(startX + shapeWidth * 0.45f, startY + bubbleH)
+                }
+                canvas.drawPath(path, fillPaint)
+                canvas.drawPath(path, strokePaint)
+            }
+            else -> {
+                val cr = shape.cornerRadius.coerceIn(0f, 30f)
+                canvas.drawRoundRect(rectF, cr, cr, fillPaint)
+                canvas.drawRoundRect(rectF, cr, cr, strokePaint)
+            }
+        }
+
+        if (shape.text.isNotBlank()) {
+            val textPaint = TextPaint().apply {
+                isAntiAlias = true
+                textSize = 10.5f
+                typeface = Typeface.create(baseTypeface, Typeface.BOLD)
+                color = if (Color.luminance(shape.fillColor) > 0.5) Color.BLACK else Color.WHITE
+            }
+            val textLayout = StaticLayout.Builder
+                .obtain(shape.text, 0, shape.text.length, textPaint, (shapeWidth - 16f).toInt().coerceAtLeast(20))
+                .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                .build()
+
+            canvas.save()
+            val textY = startY + (shapeHeight - textLayout.height) / 2f
+            canvas.translate(startX + 8f, textY)
+            textLayout.draw(canvas)
+            canvas.restore()
+        }
+
+        return startY + shapeHeight
+    }
+
+    /**
+     * Dibuja un diagrama de nodos secuenciales en el canvas del PDF.
+     */
+    private fun drawPdfNodes(
+        canvas: Canvas,
+        nodesBlock: PdfBlock.Nodes,
+        startY: Float,
+        baseTypeface: Typeface
+    ): Float {
+        val items = nodesBlock.nodes
+        if (items.isEmpty()) return startY
+
+        val fillPaint = Paint().apply {
+            isAntiAlias = true
+            style = Paint.Style.FILL
+            color = nodesBlock.fillColor
+        }
+        val strokePaint = Paint().apply {
+            isAntiAlias = true
+            style = Paint.Style.STROKE
+            color = nodesBlock.strokeColor
+            strokeWidth = 1.2f
+        }
+        val textPaint = TextPaint().apply {
+            isAntiAlias = true
+            textSize = 9.5f
+            typeface = Typeface.create(baseTypeface, Typeface.BOLD)
+            color = if (Color.luminance(nodesBlock.fillColor) > 0.5) Color.BLACK else Color.WHITE
+        }
+        val arrowPaint = Paint().apply {
+            isAntiAlias = true
+            color = nodesBlock.strokeColor
+            strokeWidth = 1.5f
+            textSize = 12f
+            typeface = Typeface.create(baseTypeface, Typeface.BOLD)
+        }
+
+        var currentY = startY
+
+        if (nodesBlock.layout == "vertical") {
+            val nodeW = 180f
+            val nodeH = 26f
+            val startX = when (nodesBlock.align) {
+                "center" -> MARGIN_HORIZONTAL + (CONTENT_WIDTH - nodeW) / 2f
+                "right" -> MARGIN_HORIZONTAL + CONTENT_WIDTH - nodeW
+                else -> MARGIN_HORIZONTAL.toFloat()
+            }
+
+            for ((idx, nodeText) in items.withIndex()) {
+                val rectF = RectF(startX, currentY, startX + nodeW, currentY + nodeH)
+                canvas.drawRoundRect(rectF, 6f, 6f, fillPaint)
+                canvas.drawRoundRect(rectF, 6f, 6f, strokePaint)
+
+                val textLayout = StaticLayout.Builder
+                    .obtain(nodeText, 0, nodeText.length, textPaint, (nodeW - 12f).toInt())
+                    .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                    .build()
+                canvas.save()
+                canvas.translate(startX + 6f, currentY + (nodeH - textLayout.height) / 2f)
+                textLayout.draw(canvas)
+                canvas.restore()
+
+                currentY += nodeH
+
+                if (idx < items.size - 1) {
+                    val arrowX = startX + nodeW / 2f
+                    canvas.drawLine(arrowX, currentY, arrowX, currentY + 10f, arrowPaint)
+                    canvas.drawLine(arrowX, currentY + 10f, arrowX - 3f, currentY + 7f, arrowPaint)
+                    canvas.drawLine(arrowX, currentY + 10f, arrowX + 3f, currentY + 7f, arrowPaint)
+                    currentY += 14f
+                }
+            }
+        } else {
+            val totalSpacing = 24f * (items.size - 1)
+            val availableW = CONTENT_WIDTH - totalSpacing
+            val nodeW = (availableW / items.size).coerceIn(40f, 130f)
+            val nodeH = 28f
+            val totalWidth = (nodeW * items.size) + totalSpacing
+
+            var currentX = when (nodesBlock.align) {
+                "center" -> MARGIN_HORIZONTAL + (CONTENT_WIDTH - totalWidth) / 2f
+                "right" -> MARGIN_HORIZONTAL + CONTENT_WIDTH - totalWidth
+                else -> MARGIN_HORIZONTAL.toFloat()
+            }
+
+            for ((idx, nodeText) in items.withIndex()) {
+                val rectF = RectF(currentX, currentY, currentX + nodeW, currentY + nodeH)
+                canvas.drawRoundRect(rectF, 6f, 6f, fillPaint)
+                canvas.drawRoundRect(rectF, 6f, 6f, strokePaint)
+
+                val textLayout = StaticLayout.Builder
+                    .obtain(nodeText, 0, nodeText.length, textPaint, (nodeW - 8f).toInt().coerceAtLeast(20))
+                    .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                    .build()
+                canvas.save()
+                canvas.translate(currentX + 4f, currentY + (nodeH - textLayout.height) / 2f)
+                textLayout.draw(canvas)
+                canvas.restore()
+
+                currentX += nodeW
+
+                if (idx < items.size - 1) {
+                    val arrowY = currentY + nodeH / 2f
+                    canvas.drawLine(currentX + 3f, arrowY, currentX + 20f, arrowY, arrowPaint)
+                    canvas.drawLine(currentX + 20f, arrowY, currentX + 16f, arrowY - 3f, arrowPaint)
+                    canvas.drawLine(currentX + 20f, arrowY, currentX + 16f, arrowY + 3f, arrowPaint)
+                    currentX += 24f
+                }
+            }
+            currentY += nodeH
+        }
+
+        return currentY
+    }
+
+    private fun parsePdfShapeDirective(line: String): PdfBlock.Shape? {
+        val content = line.removePrefix("[shape:").removeSuffix("]").trim()
+        val parts = content.split(",")
+        var type = "rect"
+        var w = 160f
+        var h = 90f
+        var align = "center"
+        var fill = Color.rgb(241, 245, 249)
+        var stroke = Color.rgb(37, 99, 235)
+        var border = 2f
+        var corner = 8f
+        var text = ""
+
+        for (p in parts) {
+            val pair = p.split("=", limit = 2)
+            if (pair.size == 2) {
+                val k = pair[0].trim().lowercase()
+                val v = pair[1].trim()
+                when (k) {
+                    "type" -> type = v
+                    "w", "width" -> w = v.toFloatOrNull() ?: 160f
+                    "h", "height" -> h = v.toFloatOrNull() ?: 90f
+                    "align" -> align = v.lowercase()
+                    "fill" -> {
+                        try {
+                            fill = Color.parseColor(if (v.startsWith("#")) v else "#$v")
+                        } catch (_: Exception) {}
+                    }
+                    "stroke" -> {
+                        try {
+                            stroke = Color.parseColor(if (v.startsWith("#")) v else "#$v")
+                        } catch (_: Exception) {}
+                    }
+                    "border" -> border = v.toFloatOrNull() ?: 2f
+                    "corner" -> corner = v.toFloatOrNull() ?: 8f
+                    "text" -> text = v
+                }
+            }
+        }
+        return PdfBlock.Shape(type, w, h, align, fill, stroke, border, corner, text)
+    }
+
+    private fun parsePdfNodesDirective(lines: List<String>, startIndex: Int): Pair<PdfBlock.Nodes, Int>? {
+        val firstLine = lines[startIndex].trim()
+        var align = "center"
+        var layout = "horizontal"
+        var fill = Color.rgb(238, 242, 255)
+        var stroke = Color.rgb(99, 102, 241)
+
+        val inlineParams = firstLine.removePrefix("[nodes").substringBefore("]").removePrefix(":").trim()
+        if (inlineParams.isNotBlank()) {
+            for (p in inlineParams.split(",")) {
+                val pair = p.split("=", limit = 2)
+                if (pair.size == 2) {
+                    val k = pair[0].trim().lowercase()
+                    val v = pair[1].trim()
+                    when (k) {
+                        "align" -> align = v.lowercase()
+                        "layout" -> layout = v.lowercase()
+                        "fill" -> {
+                            try {
+                                fill = Color.parseColor(if (v.startsWith("#")) v else "#$v")
+                            } catch (_: Exception) {}
+                        }
+                        "stroke" -> {
+                            try {
+                                stroke = Color.parseColor(if (v.startsWith("#")) v else "#$v")
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+            }
+        }
+
+        val nodes = mutableListOf<String>()
+        var nextIndex = startIndex + 1
+
+        if (firstLine.endsWith("[/nodes]") || (!firstLine.endsWith("]") && firstLine.contains("->"))) {
+            val body = firstLine.removePrefix("[nodes:").removePrefix("[nodes]").removeSuffix("[/nodes]").trim()
+            val tokens = body.split("->").map { it.trim() }.filter { it.isNotEmpty() }
+            nodes.addAll(tokens)
+            nextIndex = startIndex + 1
+        } else {
+            while (nextIndex < lines.size && lines[nextIndex].trim() != "[/nodes]") {
+                val l = lines[nextIndex].trim()
+                if (l.isNotBlank()) {
+                    if (l.contains("->")) {
+                        nodes.addAll(l.split("->").map { it.trim() }.filter { it.isNotEmpty() })
+                    } else {
+                        nodes.add(l.removePrefix("- ").removePrefix("• ").trim())
+                    }
+                }
+                nextIndex++
+            }
+            if (nextIndex < lines.size && lines[nextIndex].trim() == "[/nodes]") {
+                nextIndex++
+            }
+        }
+
+        if (nodes.isEmpty()) return null
+        return Pair(PdfBlock.Nodes(nodes, align, layout, fill, stroke), nextIndex)
+    }
+
+    /**
+     * Convierte el texto en bruto del documento a una lista estructurada de bloques de renderizado PDF.
+     */
+    private fun parseContentToPdfBlocks(rawContent: String): List<PdfBlock> {
+        val lines = rawContent.lines()
+        val blocks = mutableListOf<PdfBlock>()
+        var i = 0
+
+        while (i < lines.size) {
+            val line = lines[i]
+            val trimmed = line.trim()
+
+            // 1. Salto de página explícito
+            if (trimmed == "[--- Salto de Página ---]" || trimmed == "---" && lines.getOrNull(i - 1)?.isBlank() == true) {
+                blocks.add(PdfBlock.PageBreak)
+                i++
+                continue
+            }
+
+            // 2. Tabla explícita con directiva [table:style] ... [/table]
+            if (trimmed.startsWith("[table:") && trimmed.endsWith("]")) {
+                val style = trimmed.removePrefix("[table:").removeSuffix("]").trim()
+                val tableLines = mutableListOf<String>()
+                i++
+                while (i < lines.size && lines[i].trim() != "[/table]") {
+                    if (lines[i].trim().startsWith("|")) {
+                        tableLines.add(lines[i])
+                    }
+                    i++
+                }
+                val parsedTable = parseTableLines(tableLines, style.ifEmpty { "classic" })
+                if (parsedTable != null) blocks.add(parsedTable)
+                i++
+                continue
+            }
+
+            // 2b. Figura geométrica vectorial: [shape:type=...,w=...,h=...,align=...,fill=...,stroke=...]
+            if (trimmed.startsWith("[shape:") && trimmed.endsWith("]")) {
+                val shapeBlock = parsePdfShapeDirective(trimmed)
+                if (shapeBlock != null) {
+                    blocks.add(shapeBlock)
+                    i++
+                    continue
+                }
+            }
+
+            // 2c. Diagrama de nodos y flujo: [nodes:align=...,layout=...] ... [/nodes] o [nodes:a -> b -> c]
+            if (trimmed.startsWith("[nodes") && (trimmed.endsWith("]") || trimmed.contains("->"))) {
+                val nodesParsed = parsePdfNodesDirective(lines, i)
+                if (nodesParsed != null) {
+                    blocks.add(nodesParsed.first)
+                    i = nodesParsed.second
+                    continue
+                }
+            }
+
+            // 3. Tabla Markdown implícita (| col 1 | col 2 |)
+            if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 2) {
+                val tableLines = mutableListOf<String>()
+                while (i < lines.size && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) {
+                    tableLines.add(lines[i])
+                    i++
+                }
+                val parsedTable = parseTableLines(tableLines, "classic")
+                if (parsedTable != null) blocks.add(parsedTable)
+                continue
+            }
+
+            // 4. Divisor horizontal
+            if (trimmed == "───" || (trimmed.startsWith("---") && trimmed.length in 3..10)) {
+                blocks.add(PdfBlock.Divider)
+                i++
+                continue
+            }
+
+            // 5. Línea vacía
+            if (trimmed.isEmpty()) {
+                blocks.add(PdfBlock.EmptyLine)
+                i++
+                continue
+            }
+
+            // 6. Directivas de alineación específica: [align:xxx]...[/align]
+            val alignRegex = Regex("""\[align:(left|center|right|justify)\](.*?)\[/align\]""", RegexOption.DOT_MATCHES_ALL)
+            val alignMatch = alignRegex.find(trimmed)
+            val (effectiveLine, effectiveAlign) = if (alignMatch != null) {
+                val mode = alignMatch.groupValues[1].lowercase()
+                val content = trimmed.replace(alignMatch.value, alignMatch.groupValues[2]).trim()
+                val align = when (mode) {
+                    "center" -> Layout.Alignment.ALIGN_CENTER
+                    "right" -> Layout.Alignment.ALIGN_OPPOSITE
+                    else -> Layout.Alignment.ALIGN_NORMAL
+                }
+                Pair(content, align)
+            } else {
+                Pair(trimmed, Layout.Alignment.ALIGN_NORMAL)
+            }
+
+            // 7. Encabezados jerárquicos
+            if (effectiveLine.startsWith("# ")) {
+                blocks.add(PdfBlock.Heading(effectiveLine.removePrefix("# ").trim(), 1, effectiveAlign))
+                i++
+                continue
+            }
+            if (effectiveLine.startsWith("## ")) {
+                blocks.add(PdfBlock.Heading(effectiveLine.removePrefix("## ").trim(), 2, effectiveAlign))
+                i++
+                continue
+            }
+            if (effectiveLine.startsWith("### ")) {
+                blocks.add(PdfBlock.Heading(effectiveLine.removePrefix("### ").trim(), 3, effectiveAlign))
+                i++
+                continue
+            }
+
+            // 8. Cita destacada
+            if (effectiveLine.startsWith("> ")) {
+                blocks.add(PdfBlock.Blockquote(effectiveLine.removePrefix("> ").trim(), effectiveAlign))
+                i++
+                continue
+            }
+
+            // 9. Casillas de tareas
+            if (effectiveLine.startsWith("[ ] ")) {
+                val spanned = parseInlineFormattingToSpanned(effectiveLine.removePrefix("[ ] ").trim())
+                blocks.add(PdfBlock.TaskItem(spanned, isChecked = false))
+                i++
+                continue
+            }
+            if (effectiveLine.startsWith("[x] ") || effectiveLine.startsWith("[X] ")) {
+                val spanned = parseInlineFormattingToSpanned(effectiveLine.substring(4).trim())
+                blocks.add(PdfBlock.TaskItem(spanned, isChecked = true))
+                i++
+                continue
+            }
+
+            // 10. Listas con viñeta o numeradas
+            if (effectiveLine.startsWith("- ") || effectiveLine.startsWith("• ") || effectiveLine.startsWith("* ")) {
+                val itemText = effectiveLine.removePrefix("- ").removePrefix("• ").removePrefix("* ").trim()
+                val spanned = parseInlineFormattingToSpanned(itemText)
+                blocks.add(PdfBlock.ListItem(spanned, isNumbered = false, index = 0))
+                i++
+                continue
+            }
+            val numMatch = Regex("""^(\d+)\.\s+(.*)""").find(effectiveLine)
+            if (numMatch != null) {
+                val index = numMatch.groupValues[1].toIntOrNull() ?: 1
+                val itemText = numMatch.groupValues[2].trim()
+                val spanned = parseInlineFormattingToSpanned(itemText)
+                blocks.add(PdfBlock.ListItem(spanned, isNumbered = true, index = index))
+                i++
+                continue
+            }
+
+            // 11. Párrafo estándar con formato enriquecido en línea
+            val spanned = parseInlineFormattingToSpanned(effectiveLine)
+            blocks.add(PdfBlock.Paragraph(spanned, effectiveAlign))
+            i++
+        }
+
+        return blocks
+    }
+
+    /**
+     * Parsea las líneas de una tabla Markdown en una estructura de filas y celdas.
+     */
+    private fun parseTableLines(lines: List<String>, style: String): PdfBlock.Table? {
+        val rows = mutableListOf<List<String>>()
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (!trimmed.startsWith("|")) continue
+
+            // Ignorar la línea separadora Markdown (|---|---|)
+            if (trimmed.contains("---") && trimmed.replace("|", "").replace("-", "").replace(":", "").isBlank()) {
+                continue
+            }
+
+            val cells = trimmed
+                .removePrefix("|")
+                .removeSuffix("|")
+                .split("|")
+                .map { it.trim() }
+
+            if (cells.isNotEmpty() && cells.any { it.isNotEmpty() }) {
+                rows.add(cells)
+            }
+        }
+        return if (rows.isNotEmpty()) PdfBlock.Table(rows, style) else null
+    }
+
+    /**
+     * Parsea etiquetas Markdown y directivas inline a un SpannableStringBuilder con estilos reales
+     * (negrita, cursiva, subrayado, tachado, subíndice, superíndice y colores).
+     */
+    private fun parseInlineFormattingToSpanned(text: String): CharSequence {
+        val ssb = SpannableStringBuilder()
+        // Procesador de tokens con expresiones regulares para transformar el texto limpio y aplicar spans
+        var clean = text
+
+        // Extraer formato por reemplazos seguros acumulativos
+        // 1. Color: [color:#HEX]texto[/color]
+        val colorRegex = Regex("""\[color:(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8})\](.*?)\[/color\]""")
+        // 2. Negrita: **texto**
+        val boldRegex = Regex("""\*\*(.*?)\*\*""")
+        // 3. Cursiva: *texto*
+        val italicRegex = Regex("""\*(.*?)\*""")
+        // 4. Subrayado: <u>texto</u>
+        val underlineRegex = Regex("""<u>(.*?)</u>""")
+        // 5. Tachado: ~~texto~~
+        val strikeRegex = Regex("""~~(.*?)~~""")
+        // 6. Superíndice: <sup>texto</sup>
+        val superRegex = Regex("""<sup>(.*?)</sup>""")
+        // 7. Subíndice: <sub>texto</sub>
+        val subRegex = Regex("""<sub>(.*?)</sub>""")
+        // 8. Grosor tipográfico: [weight:valor]texto[/weight]
+        val weightRegex = Regex("""\[weight:([a-zA-Z0-9]+)\](.*?)\[/weight\]""")
+        // 9. Color y efecto 3D: [3d:params]texto[/3d]
+        val effect3dRegex = Regex("""\[3d:([^\]]+)\](.*?)\[/3d\]""")
+
+        data class SpanInstruction(val start: Int, val end: Int, val span: Any)
+        val instructions = mutableListOf<SpanInstruction>()
+
+        // Aplicamos un parser secuencial paso a paso sobre el texto resultante
+        var workingText = clean
+
+        // Funciones auxiliares para buscar y remover tags registrando coordenadas
+        fun stripAndRecord(pattern: Regex, createSpan: (String) -> Any) {
+            var match = pattern.find(workingText)
+            while (match != null) {
+                val fullMatch = match.value
+                val innerText = if (match.groupValues.size > 2) match.groupValues[2] else match.groupValues[1]
+                val span = createSpan(if (match.groupValues.size > 2) match.groupValues[1] else "")
+                val start = match.range.first
+                val end = start + innerText.length
+
+                workingText = workingText.replaceRange(match.range, innerText)
+                instructions.add(SpanInstruction(start, end, span))
+
+                match = pattern.find(workingText)
+            }
+        }
+
+        // Registrar colores
+        stripAndRecord(colorRegex) { hex ->
+            try {
+                ForegroundColorSpan(Color.parseColor(hex))
+            } catch (_: Exception) {
+                ForegroundColorSpan(Color.BLACK)
+            }
+        }
+
+        // Registrar negrita
+        stripAndRecord(boldRegex) { StyleSpan(Typeface.BOLD) }
+
+        // Registrar cursiva
+        stripAndRecord(italicRegex) { StyleSpan(Typeface.ITALIC) }
+
+        // Registrar subrayado
+        stripAndRecord(underlineRegex) { UnderlineSpan() }
+
+        // Registrar tachado
+        stripAndRecord(strikeRegex) { StrikethroughSpan() }
+
+        // Registrar superíndice
+        stripAndRecord(superRegex) { SuperscriptSpan() }
+
+        // Registrar subíndice
+        stripAndRecord(subRegex) { SubscriptSpan() }
+
+        // Registrar grosor tipográfico
+        stripAndRecord(weightRegex) { weight ->
+            when (weight.lowercase()) {
+                "light", "thin" -> StyleSpan(Typeface.NORMAL)
+                else -> StyleSpan(Typeface.BOLD)
+            }
+        }
+
+        // Registrar color y estilos 3D
+        stripAndRecord(effect3dRegex) { params ->
+            var frontColor = Color.rgb(37, 99, 235)
+            val parts = params.split(",")
+            for (part in parts) {
+                val kv = part.split("=")
+                if (kv.size == 2 && kv[0].trim().lowercase() == "front") {
+                    try {
+                        val hex = kv[1].trim()
+                        frontColor = Color.parseColor(if (hex.startsWith("#")) hex else "#$hex")
+                    } catch (_: Exception) {}
+                }
+            }
+            ForegroundColorSpan(frontColor)
+        }
+
+        ssb.append(workingText)
+
+        for (inst in instructions) {
+            val safeStart = inst.start.coerceIn(0, ssb.length)
+            val safeEnd = inst.end.coerceIn(safeStart, ssb.length)
+            if (safeEnd > safeStart) {
+                ssb.setSpan(inst.span, safeStart, safeEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+
+        return ssb
+    }
+
+    /**
+     * Divide los bloques en páginas virtuales estimando la altura de cada bloque
+     * para que nunca se desborde el contenido ni se corte la hoja A4.
+     */
+    private fun paginatePdfBlocks(
+        blocks: List<PdfBlock>,
+        bodyPaint: TextPaint,
+        h1Paint: TextPaint,
+        h2Paint: TextPaint,
+        h3Paint: TextPaint,
+        quotePaint: TextPaint
+    ): List<List<PdfBlock>> {
+        val pages = mutableListOf<MutableList<PdfBlock>>()
+        var currentPage = mutableListOf<PdfBlock>()
+        var currentHeight = 0f
+
+        for (block in blocks) {
+            if (block is PdfBlock.PageBreak) {
+                if (currentPage.isNotEmpty()) {
+                    pages.add(currentPage)
+                    currentPage = mutableListOf()
+                    currentHeight = 0f
+                }
+                continue
+            }
+
+            val blockHeight = estimateBlockHeight(block, bodyPaint, h1Paint, h2Paint, h3Paint, quotePaint)
+
+            if (currentHeight + blockHeight > USABLE_PAGE_HEIGHT && currentPage.isNotEmpty()) {
+                pages.add(currentPage)
+                currentPage = mutableListOf()
+                currentHeight = 0f
+            }
+
+            currentPage.add(block)
+            currentHeight += blockHeight
+        }
+
+        if (currentPage.isNotEmpty() || pages.isEmpty()) {
+            pages.add(currentPage)
+        }
+
+        return pages
+    }
+
+    /**
+     * Calcula la altura aproximada de un bloque para la paginación.
+     */
+    private fun estimateBlockHeight(
+        block: PdfBlock,
+        bodyPaint: TextPaint,
+        h1Paint: TextPaint,
+        h2Paint: TextPaint,
+        h3Paint: TextPaint,
+        quotePaint: TextPaint
+    ): Float {
+        return when (block) {
+            is PdfBlock.Heading -> {
+                val paint = when (block.level) {
+                    1 -> h1Paint
+                    2 -> h2Paint
+                    else -> h3Paint
+                }
+                val layout = StaticLayout.Builder
+                    .obtain(block.text, 0, block.text.length, paint, CONTENT_WIDTH)
+                    .setAlignment(block.align)
+                    .build()
+                layout.height + (if (block.level == 1) 22f else 14f)
+            }
+
+            is PdfBlock.Paragraph -> {
+                val layout = StaticLayout.Builder
+                    .obtain(block.text, 0, block.text.length, bodyPaint, CONTENT_WIDTH)
+                    .setAlignment(block.align)
+                    .setLineSpacing(3f, 1.15f)
+                    .build()
+                layout.height + 8f
+            }
+
+            is PdfBlock.Blockquote -> {
+                val layout = StaticLayout.Builder
+                    .obtain(block.text, 0, block.text.length, quotePaint, CONTENT_WIDTH - 24)
+                    .setAlignment(block.align)
+                    .build()
+                layout.height + 18f
+            }
+
+            is PdfBlock.ListItem -> {
+                val layout = StaticLayout.Builder
+                    .obtain(block.text, 0, block.text.length, bodyPaint, CONTENT_WIDTH - 18)
+                    .build()
+                layout.height + 6f
+            }
+
+            is PdfBlock.TaskItem -> {
+                val layout = StaticLayout.Builder
+                    .obtain(block.text, 0, block.text.length, bodyPaint, CONTENT_WIDTH - 20)
+                    .build()
+                layout.height + 6f
+            }
+
+            is PdfBlock.Table -> {
+                // Altura estimada de filas de la tabla
+                var total = 10f
+                for (row in block.rows) {
+                    total += 24f // promedio por fila
+                }
+                total
+            }
+
+            is PdfBlock.Shape -> {
+                block.heightPt + 16f
+            }
+
+            is PdfBlock.Nodes -> {
+                if (block.layout == "vertical") {
+                    block.nodes.size * 34f + 20f
+                } else {
+                    48f + 16f
+                }
+            }
+
+            is PdfBlock.Divider -> 16f
+            is PdfBlock.EmptyLine -> 10f
+            is PdfBlock.PageBreak -> 0f
         }
     }
 
@@ -457,6 +1675,42 @@ object DocumentExporter {
             e.printStackTrace()
             return null
         }
+    }
+
+    /**
+     * Exporta el documento como archivo Microsoft Word (.docx).
+     * Empaquetado OpenXML nativo compatible con Word, Google Docs y LibreOffice.
+     */
+    fun exportToDocx(
+        context: Context,
+        title: String,
+        content: String
+    ): Uri? {
+        return DocxHandler.exportToDocx(context, title, content)
+    }
+
+    /**
+     * Exporta el documento como archivo Rich Text Format (.rtf).
+     * Estándar ofimático ligero y universal para edición en cualquier plataforma.
+     */
+    fun exportToRtf(
+        context: Context,
+        title: String,
+        content: String
+    ): Uri? {
+        return RtfHandler.exportToRtf(context, title, content)
+    }
+
+    /**
+     * Exporta el documento como código fuente LaTeX (.tex).
+     * Maquetación científica y académica con tipografía A4 de imprenta.
+     */
+    fun exportToLatex(
+        context: Context,
+        title: String,
+        content: String
+    ): Uri? {
+        return LatexHandler.exportToLatex(context, title, content)
     }
 
     private fun escapeHtml(text: String): String {

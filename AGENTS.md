@@ -34,8 +34,9 @@ Este documento define las reglas de comportamiento, convenciones de ingeniería 
 - En **Modo Cascada Continua**, las hojas deben renderizarse con apariencia tridimensional independiente, manteniendo reglas graduadas, delimitadores de márgenes y pies de página correlativos (*«— Página X de Y —»*).
 - No retirar la protección de escala de fuente (`fontScale = 1.0f`) implementada en `Theme.kt`, ya que previene distorsiones provocadas por configuraciones de tamaño de letra extremo en el sistema operativo del teléfono.
 
-### 4. Exportación Segura de Archivos
-- Las exportaciones a **PDF digital** y **Markdown (.md)** deben realizarse mediante `DocumentExporter` utilizando `FileProvider` con `content://` URIs seguros, respetando las rutas autorizadas en `res/xml/file_paths.xml`.
+### 4. Exportación e Importación Segura de Archivos
+- Las exportaciones a **PDF digital (.pdf)**, **Word (.docx)**, **Rich Text Format (.rtf)**, **LaTeX (.tex)**, **Markdown (.md)**, **HTML Editorial (.html)** y **Texto Plano (.txt)** deben realizarse mediante `DocumentExporter` utilizando `FileProvider` con `content://` URIs seguros, respetando las rutas autorizadas en `res/xml/file_paths.xml`.
+- Las importaciones deben canalizarse a través de `DocumentImporter` en hilos secundarios `Dispatchers.IO` para evitar bloqueos de interfaz durante la descompresión ZIP o el análisis de estructuras sintácticas.
 
 ### 5. Documentación y Claridad del Código
 - Cada archivo de código en Kotlin, C++ o Rust debe incluir un encabezado KDoc / doc comments y explicaciones en español que aclaren de forma transparente su propósito, su lógica y sus componentes principales.
@@ -56,3 +57,13 @@ Este documento define las reglas de comportamiento, convenciones de ingeniería 
 - El motor de sustitución de variables dinámicas debe preservar la integridad del texto, el cursor y el historial de deshacer/rehacer.
 - El procesamiento nativo acelerado debe ejecutarse mediante JNI en `NativeEngineBridge.expandMacroTemplateSafe` con respaldo en Kotlin en `MacroEngine`.
 - Las operaciones sobre la base de datos de macros (`MacroDao`, `MacroRepository`) deben ejecutarse en `Dispatchers.IO`.
+
+### 10. Tipografía 3D, Figuras Geométricas y Nodos de Diagrama de PC
+- Los estilos tipográficos avanzados (`[color:#HEX]`, `[weight:grosor]`, `[3d:#sombra,#relieve]`), figuras geométricas (`[shape:...]Texto[/shape]`) y diagramas de nodos (`[nodes:...]Nodo1 -> Nodo2[/nodes]`) deben renderizarse reactivamente sobre la hoja de papel física en `PaperSheet.kt` y `PaperRichVisualTransformation.kt`.
+- Toda nueva figura geométrica o estilo gráfico debe tener su contraparte vectorial en `DocumentExporter.kt` para garantizar que la exportación a PDF digital mantenga calidad de imprenta nítida en formato A4 estándar sin rasterización borrosa.
+
+### 11. Interoperabilidad Universal de Documentos (.DOCX, .RTF, .TEX)
+- **Independencia de Dependencias Propietarias**: Los motores `DocxHandler`, `RtfHandler` y `LatexHandler` deben mantenerse limpios de frameworks invasivos o bibliotecas comerciales con licencias restrictivas.
+- **Paridad Bidireccional Importación/Exportación**: Cada formato soportado debe garantizar tanto la salida como la entrada de datos, conservando encabezados, párrafos, tablas y énfasis tipográficos hacia y desde la hoja de papel de DocuSheet.
+- **Detección Automática Tolerante**: `DocumentImporter` debe ser capaz de determinar el formato tanto a partir de la extensión del archivo como por análisis de firmas binarias / mágicas (`PK..`, `{\rtf`, `\documentclass`).
+

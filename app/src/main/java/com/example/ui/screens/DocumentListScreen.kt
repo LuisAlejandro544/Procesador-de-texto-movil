@@ -30,12 +30,15 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Info
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -101,6 +104,34 @@ fun DocumentListScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var showNewDocDialog by remember { mutableStateOf(false) }
     var documentToDelete by remember { mutableStateOf<DocumentEntity?>(null) }
+    val context = LocalContext.current
+
+    // Selector universal para importar documentos (.docx, .rtf, .tex, .md, .txt)
+    val importDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { selectedUri ->
+            viewModel.importDocument(
+                context = context,
+                uri = selectedUri,
+                onSuccess = { newId, formatName ->
+                    Toast.makeText(
+                        context,
+                        "Documento importado con éxito ($formatName)",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    onNavigateToEditor(newId)
+                },
+                onError = { errorMsg ->
+                    Toast.makeText(
+                        context,
+                        "Error al importar: $errorMsg",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            )
+        }
+    }
 
     // Selector de archivos PDF del sistema
     val pdfPickerLauncher = rememberLauncherForActivityResult(
@@ -145,6 +176,32 @@ fun DocumentListScreen(
                     }
                 },
                 actions = {
+                    // Botón para importar documentos (.docx, .rtf, .tex, .md, .txt)
+                    IconButton(
+                        onClick = {
+                            importDocumentLauncher.launch(
+                                arrayOf(
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    "application/msword",
+                                    "application/rtf",
+                                    "text/rtf",
+                                    "text/x-tex",
+                                    "application/x-tex",
+                                    "text/markdown",
+                                    "text/plain",
+                                    "*/*"
+                                )
+                            )
+                        },
+                        modifier = Modifier.testTag("import_document_action_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.FileOpen,
+                            contentDescription = "Importar documento (.docx, .rtf, .tex, .md, .txt)",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     // Botón para abrir y visualizar archivos PDF en el visor nativo
                     IconButton(
                         onClick = {
@@ -266,13 +323,38 @@ fun DocumentListScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(20.dp))
-                        Button(
-                            onClick = { showNewDocDialog = true },
-                            modifier = Modifier.testTag("empty_state_create_button")
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Escribir en una hoja")
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = { showNewDocDialog = true },
+                                modifier = Modifier.testTag("empty_state_create_button")
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Escribir")
+                            }
+
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = {
+                                    importDocumentLauncher.launch(
+                                        arrayOf(
+                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                            "application/msword",
+                                            "application/rtf",
+                                            "text/rtf",
+                                            "text/x-tex",
+                                            "application/x-tex",
+                                            "text/markdown",
+                                            "text/plain",
+                                            "*/*"
+                                        )
+                                    )
+                                },
+                                modifier = Modifier.testTag("empty_state_import_button")
+                            ) {
+                                Icon(Icons.Outlined.FileOpen, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Importar")
+                            }
                         }
                     }
                 }
@@ -336,6 +418,26 @@ fun DocumentListScreen(
                             viewModel.createNewDocument("Borrador de Ensayo", template) { newId ->
                                 onNavigateToEditor(newId)
                             }
+                        }
+                    )
+                    TemplateOptionItem(
+                        title = "Importar Documento Externo",
+                        subtitle = "Abrir archivos .docx, .rtf, .tex (LaTeX), .md o .txt",
+                        onClick = {
+                            showNewDocDialog = false
+                            importDocumentLauncher.launch(
+                                arrayOf(
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    "application/msword",
+                                    "application/rtf",
+                                    "text/rtf",
+                                    "text/x-tex",
+                                    "application/x-tex",
+                                    "text/markdown",
+                                    "text/plain",
+                                    "*/*"
+                                )
+                            )
                         }
                     )
                 }

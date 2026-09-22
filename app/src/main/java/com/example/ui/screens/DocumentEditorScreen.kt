@@ -40,7 +40,10 @@ import com.example.ui.components.DocuSheetMacroBottomSheet
 import com.example.ui.components.DocuSheetPcSelectionBar
 import com.example.ui.components.DocuSheetSearchRadarBar
 import com.example.ui.components.PaperSheet
+import com.example.ui.components.TableEditorDialog
 import com.example.ui.components.TableInsertDialog
+import com.example.ui.components.TextStyle3dDialog
+import com.example.ui.components.InsertShapeOrNodeDialog
 import com.example.ui.screens.editor.EditorFormattingToolbar
 import com.example.ui.screens.editor.EditorStatusBar
 import com.example.ui.screens.editor.EditorTopBar
@@ -99,6 +102,7 @@ fun DocumentEditorScreen(
     val isMacroSheetVisible by viewModel.isMacroSheetVisible.collectAsStateWithLifecycle()
     val allMacros by viewModel.allMacros.collectAsStateWithLifecycle()
     val selectedMacroCategory by viewModel.selectedMacroCategory.collectAsStateWithLifecycle()
+    val activeEditingTable by viewModel.activeEditingTable.collectAsStateWithLifecycle()
     val macroSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val clipboardManager = LocalClipboardManager.current
@@ -113,6 +117,8 @@ fun DocumentEditorScreen(
 
     var showImageDialog by remember { mutableStateOf(false) }
     var showTableDialog by remember { mutableStateOf(false) }
+    var showColor3dDialog by remember { mutableStateOf(false) }
+    var showShapeNodeDialog by remember { mutableStateOf(false) }
 
     val wordCount = viewModel.getWordCount(editorContent)
     val estimatedPages = viewModel.getEstimatedPages(editorContent)
@@ -193,6 +199,8 @@ fun DocumentEditorScreen(
                 onSetGlobalFont = { viewModel.updatePageSettings(fontStyle = it) },
                 onOpenImageDialog = { showImageDialog = true },
                 onOpenTableDialog = { showTableDialog = true },
+                isCursorInTable = viewModel.isCursorInTable(),
+                onEditCurrentTable = { viewModel.openTableEditor() },
                 onInsertBullet = { viewModel.insertBullet() },
                 onInsertNumberedList = { viewModel.insertNumberedList() },
                 onInsertChecklist = { viewModel.insertChecklist() },
@@ -201,7 +209,9 @@ fun DocumentEditorScreen(
                 onInsertDate = { viewModel.insertCurrentDate() },
                 onOpenMacros = { viewModel.setMacroSheetVisible(true) },
                 onInsertDivider = { viewModel.insertDivider() },
-                onCycleZoom = { viewModel.cyclePageZoom() }
+                onCycleZoom = { viewModel.cyclePageZoom() },
+                onOpenColor3dDialog = { showColor3dDialog = true },
+                onOpenShapeNodeDialog = { showShapeNodeDialog = true }
             )
 
             // --- Barra de Selección Contextual Estilo PC ---
@@ -347,6 +357,46 @@ fun DocumentEditorScreen(
             },
             onDismiss = {
                 viewModel.setMacroSheetVisible(false)
+            }
+        )
+    }
+
+    // Asistente visual y táctil para Editar Tablas Existentes
+    activeEditingTable?.let { tableData ->
+        TableEditorDialog(
+            initialData = tableData,
+            onDismiss = { viewModel.closeTableEditor() },
+            onSave = { updatedData ->
+                viewModel.saveTableChanges(updatedData)
+            }
+        )
+    }
+
+    // Diálogo avanzado de Estilos de Texto: Color, Grosor y Efectos 3D
+    if (showColor3dDialog) {
+        val selectedText = if (!editorTextFieldValue.selection.collapsed) {
+            val min = editorTextFieldValue.selection.min.coerceIn(0, editorTextFieldValue.text.length)
+            val max = editorTextFieldValue.selection.max.coerceIn(0, editorTextFieldValue.text.length)
+            editorTextFieldValue.text.substring(min, max)
+        } else ""
+
+        TextStyle3dDialog(
+            selectedTextPreview = selectedText,
+            onDismiss = { showColor3dDialog = false },
+            onApplyStyle = { prefix, suffix ->
+                viewModel.applyTextStyle3d(prefix, suffix)
+                showColor3dDialog = false
+            }
+        )
+    }
+
+    // Diálogo avanzado de Figuras Geométricas y Nodos de Diagrama de PC
+    if (showShapeNodeDialog) {
+        InsertShapeOrNodeDialog(
+            onDismiss = { showShapeNodeDialog = false },
+            onInsertText = { textToInsert ->
+                viewModel.insertBlockAtCursor(textToInsert)
+                showShapeNodeDialog = false
             }
         )
     }
