@@ -74,26 +74,48 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 │       │       └── ThesaurusRepository.kt # Acceso asíncrono y resolución de sinónimos en segundo plano
 │       │
 │       ├── ui/
-│       │   ├── DocumentViewModel.kt     # Gestor de estado: macros, buscador, radar de estilo, sinónimos, deshacer/rehacer y métricas
+│       │   ├── DocumentViewModel.kt     # Gestor de estado modular: delega a submódulos especializados
+│       │   ├── DocumentStatsCalculator.kt # Submódulo de cálculo cuantitativo de palabras, páginas y tiempo de lectura
+│       │   ├── TextEditingHistoryManager.kt # Submódulo de gestión de historial de deshacer/rehacer y coalescencia
+│       │   ├── SearchAndRadarDelegate.kt # Submódulo de búsqueda, reemplazo, radar de estilo y consulta de sinónimos
+│       │   ├── MacroWorkflowDelegate.kt # Submódulo de automatizaciones, expansión de disparadores en vivo y CRUD
 │       │   │
 │       │   ├── components/              # Componentes visuales reutilizables
-│       │   │   ├── PaperSheet.kt        # Lienzo de hoja de papel, Cascada Continua, reglas, guías y parser de bloques
+│       │   │   ├── PaperSheet.kt        # Coordinador del lienzo de hoja de papel física y Cascada Continua
 │       │   │   ├── TableSheetBlock.kt   # Renderizador físico de tablas y cuadrículas editoriales sobre la hoja
 │       │   │   ├── TableInsertDialog.kt # Diálogo táctil de configuración e inserción de tablas
 │       │   │   ├── DocuSheetSearchRadarBar.kt # Panel táctil de búsqueda, reemplazo, carrusel y radar de redundancia
-│       │   │   ├── DocuSheetSelectionToolbar.kt # Barra contextual estilo PC (reemplazo del selector del fabricante) y paleta de tinta
-│       │   │   └── DocuSheetMacroBottomSheet.kt # Panel táctil modal de macros, variables dinámicas y creación rápida
+│       │   │   ├── DocuSheetSelectionToolbar.kt # Barra contextual estilo PC y silenciador del menú del fabricante
+│       │   │   ├── DocuSheetMacroBottomSheet.kt # Panel táctil modal de macros, variables dinámicas y creación rápida
+│       │   │   │
+│       │   │   ├── paper/               # Submódulos de renderizado y física de papel (PaperSheet)
+│       │   │   │   ├── PaperSheetPaginator.kt # Partición de hojas por saltos de página y conteo de palabras
+│       │   │   │   ├── PaperRichVisualTransformation.kt # Resaltado sintáctico visual sin alterar texto subyacente
+│       │   │   │   ├── PaperSheetGuides.kt  # Regla milimétrica graduada, delimitadores de margen y separador
+│       │   │   │   ├── SheetImageBlock.kt   # Renderizado asíncrono con Coil y modos de ajuste (wrap:full/left/etc.)
+│       │   │   │   └── PaperBlockRenderer.kt # Parser y renderizador de encabezados, citas, listas, checklists y tablas
+│       │   │   │
+│       │   │   └── selection/           # Submódulos de selección contextual de PC (DocuSheetSelectionToolbar)
+│       │   │       ├── SelectionBarButton.kt # Botones táctiles de escritorio (≥48dp) y etiquetador de rango
+│       │   │       ├── SelectionSwapBanner.kt # Banner reactivo de transposición atómica Bloque A ⇄ Bloque B
+│       │   │       └── SelectionInkPaletteDialog.kt # Paleta de tintas clásicas y selector hexadecimal libre
 │       │   │
 │       │   ├── navigation/              # Capa de Navegación
 │       │   │   └── NavGraph.kt          # Grafo central con rutas: documents, editor, settings, about, macros
 │       │   │
 │       │   ├── screens/                 # Pantallas completas de la aplicación
 │       │   │   ├── DocumentListScreen.kt# Biblioteca de documentos, selector de PDFs externos, miniaturas y plantillas
-│       │   │   ├── DocumentEditorScreen.kt # Pantalla del editor con barra de herramientas, macros, exportación y cascada
+│       │   │   ├── DocumentEditorScreen.kt # Coordinador del editor: área de trabajo de escritorio y cascada continua
 │       │   │   ├── DocumentSettingsScreen.kt # Ajustes de papel (texturas, fuentes Serif/Sans/Mono/Cursive)
 │       │   │   ├── AboutScreen.kt       # Centro de Métricas Detalladas, anillo de progreso, gráficas y acceso a macros
 │       │   │   ├── PdfViewerScreen.kt   # Visor nativo de PDF de alta resolución con zoom táctil y estética de hoja
-│       │   │   └── MacroManagerScreen.kt# Gestor integral de macros, simulador de evaluación y catálogo de variables
+│       │   │   ├── MacroManagerScreen.kt# Gestor integral de macros, simulador de evaluación y catálogo de variables
+│       │   │   │
+│       │   │   └── editor/              # Submódulos de interfaz del editor (DocumentEditorScreen)
+│       │   │       ├── EditorTopBar.kt      # Barra superior con título editable, estado de guardado y exportación
+│       │   │       ├── EditorFormattingToolbar.kt # Barra horizontal de herramientas de formato tipográfico y bloques
+│       │   │       ├── EditorStatusBar.kt   # Barra de estado inferior estilo PC (páginas, palabras, tiempo, zoom)
+│       │   │       └── ImageInsertDialog.kt # Diálogo modal para galería de fotos y optimización en caché
 │       │   │
 │       │   └── theme/                   # Sistema de Diseño y Tokens
 │       │       ├── Color.kt             # Paleta de colores M3
@@ -200,6 +222,11 @@ DocuSheet incorpora un procesador híbrido de sintaxis enriquecida adaptado a ho
    - Detección en vivo de disparadores (`checkAndExpandMacroTrigger`) al escribir en la hoja física (`:acta:`, `:carta:`, `:minuta:`, etc.).
    - Panel modal de selección rápida `DocuSheetMacroBottomSheet.kt` en el editor y pantalla de gestión `MacroManagerScreen.kt` con pestaña de simulación y evaluación en tiempo real.
    - Persistencia local en SQLite mediante Room v5 (`MacroEntity`, `MacroDao`, `MacroRepository`, `MIGRATION_4_5`).
+10. **Arquitectura de Desacoplamiento y Modularización Integral**:
+    - **DocumentViewModel**: Descompuesto en delegados especializados (`TextEditingHistoryManager`, `SearchAndRadarDelegate`, `MacroWorkflowDelegate`, `DocumentStatsCalculator`).
+    - **PaperSheet (`ui/components/paper/`)**: Subdividido en submódulos de paginación matemática (`PaperSheetPaginator`), transformación visual sintáctica (`PaperRichVisualTransformation`), guías físicas y reglas (`PaperSheetGuides`), renderizado de imágenes (`SheetImageBlock`) y renderizado de bloques (`PaperBlockRenderer`).
+    - **DocumentEditorScreen (`ui/screens/editor/`)**: Descompuesto en barra superior (`EditorTopBar`), barra de formato tipográfico (`EditorFormattingToolbar`), barra de estado de PC (`EditorStatusBar`) y diálogo modal de inserción fotográfica (`ImageInsertDialog`).
+    - **DocuSheetSelectionToolbar (`ui/components/selection/`)**: Modularizado en botones de escritorio (`SelectionBarButton`), banner de transposición (`SelectionSwapBanner`) y paleta de tintas clásicas (`SelectionInkPaletteDialog`).
 
 ---
 
