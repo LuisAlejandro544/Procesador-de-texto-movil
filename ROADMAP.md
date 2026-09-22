@@ -171,7 +171,47 @@ Este documento traza las fases evolutivas para transformar DocuSheet desde una e
 
 ---
 
-## 🌟 Fase 12: Próximas Mejoras Planificadas
+## 🔍 Fase 12: Buscador de PC, Radar de Redundancia (Apache Lucene) y Diccionario de Sinónimos Offline (Completada ✅)
+- [x] **Integración de Motor Lingüístico Apache Lucene**:
+  - Integración de `lucene-core` y `lucene-analyzers-common` (v8.11.2) en Gradle y Version Catalog.
+  - Módulo `StyleRadarEngine.kt` con análisis tokenizado formal en español (`SpanishAnalyzer`) y lematización morfológica con `SpanishLightStemmer`.
+  - Detección de proximidad léxica basada en ventanas móviles de palabras (umbrales: Crítico <40 palabras, Moderado 40..120 palabras, Aceptable >120 palabras).
+  - Cálculo de densidad léxica y diagnóstico automático con recomendaciones de estilo en español.
+- [x] **Diccionario Local de Sinónimos (100% Offline)**:
+  - Creación de entidades Room `SynonymEntity` y `SynonymDao` con migración segura a Room v4 (`MIGRATION_3_4`).
+  - Repositorio `ThesaurusRepository` y catálogo de precarga inicial `ThesaurusSeedData` con cientos de equivalencias léxicas en español.
+  - Búsqueda híbrida instantánea: concordancia exacta del vocablo y concordancia por raíz lematizada (stem).
+- [x] **Buscador Táctil de PC y Carrusel de Navegación (`DocuSheetSearchRadarBar.kt`)**:
+  - Panel superior flotante con campo de búsqueda, contador de ocurrencias estilo PC (ej. *«1 / 5»*) y botones de salto secuencial anterior/siguiente.
+  - Modo desplegable de Reemplazo individual y Reemplazo masivo en todo el documento.
+  - Carrusel horizontal deslizable (`LazyRow`) con chips táctiles de sinónimos offline: sustitución instantánea en la hoja física al tocarlos.
+- [x] **Integración con la Barra Contextual de PC (`DocuSheetPcSelectionBar`)**:
+  - Botón directo *«Sinónimos/Radar»* al seleccionar cualquier palabra en la hoja para consultar alternativas de inmediato.
+
+---
+
+## ⚡ Fase 13: Sistema de Macros, Automatizaciones y Expansión Dinámica de Plantillas (Completada ✅)
+- [x] **Motor Nativo de Sustitución Acelerada en C++20 (`expand_macro_template`)**:
+  - Implementación con `std::string_view` y reserva de memoria previa en `docusheet_core.cpp` para evaluar plantillas al instante sin impacto en la tasa de refresco (60 FPS).
+  - Enlace JNI en `NativeEngineBridge.kt` (`expandMacroTemplateSafe`) y motor en Kotlin `MacroEngine.kt`.
+- [x] **Variables Contextuales Dinámicas de Documento y Sistema**:
+  - Integración de variables: `{FECHA}`, `{FECHA_ISO}`, `{HORA}`, `{TITULO}`, `{AUTOR}`, `{TOTAL_PALABRAS}`, `{PAGINA_ACTUAL}`, `{TOTAL_PAGINAS}`, `{FORMATO_HOJA}`, `{CLIPBOARD}`, `{SELECCION}`, `{DISPARADOR}`, `{TABLA_2X3}`, `{TABLA_3X3}`, `{LISTA_TAREAS}`, `{ALEATORIO_ID}`, `{HASH_DOC}`.
+- [x] **Catálogo Extenso de Macros Pre-Construidas**:
+  - Plantillas de alta fidelidad: Acta de Reunión (`:acta:`), Carta Formal de Solicitud (`:carta:`), Minuta Técnica (`:minuta:`), Resumen Ejecutivo (`:resumen:`), Ficha de Proyecto (`:proyecto:`), Lista de Tareas / Sprint (`:tareas:`), Cita Bibliográfica Formal (`:cita:`).
+- [x] **Detección y Expansión en Vivo al Escribir (In-place Triggering)**:
+  - Detección reactiva en `onTextFieldValueChange`: al escribir un atajo como `:acta:`, `:carta:` o `:minuta:` seguido de dos puntos o espacio, el texto se expande automáticamente reemplazando el disparador sin interacción manual.
+- [x] **Panel Modal Rápido en el Editor (`DocuSheetMacroBottomSheet`)**:
+  - Acceso directo mediante el botón *«Macros»* en la barra de herramientas del editor.
+  - Pestañas por categoría (Documentos, Editorial, Trabajo, Estructura), previsualización de variables y creador de macros personalizadas.
+- [x] **Pantalla Dedicada de Gestión y Laboratorio (`MacroManagerScreen`)**:
+  - Nueva ruta en `NavGraph.kt` (`macros`) con acceso desde `AboutScreen`.
+  - Pestaña de biblioteca de macros, pestaña de simulador en vivo que evalúa las variables contra el documento activo, y catálogo explicativo de variables dinámicas.
+- [x] **Persistencia en Room v5**:
+  - Entidad `MacroEntity`, interfaz `MacroDao`, repositorio asíncrono `MacroRepository` y migración segura `MIGRATION_4_5`.
+
+---
+
+## 🌟 Fase 14: Próximas Mejoras Planificadas
 - [ ] Conexión completa del bucle de eventos del teclado táctil con el búfer Piece Table de Rust.
 - [ ] Modo Enfoque Zen (pantalla completa sin ningún botón visible durante la escritura continua).
 - [ ] Copia de seguridad y restauración local mediante archivo comprimido.

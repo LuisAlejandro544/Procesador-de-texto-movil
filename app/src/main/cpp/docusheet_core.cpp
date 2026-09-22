@@ -331,6 +331,22 @@ TextPermutationResult TextManipulator::move_paragraph(
     return swap_paragraph(full_text, cursor_start, cursor_end, move_up);
 }
 
+std::string TextManipulator::expand_macro_template(
+    std::string_view template_text,
+    const std::vector<std::pair<std::string, std::string>>& variables
+) {
+    std::string result(template_text);
+    for (const auto& [token, value] : variables) {
+        if (token.empty()) continue;
+        size_t pos = 0;
+        while ((pos = result.find(token, pos)) != std::string::npos) {
+            result.replace(pos, token.length(), value);
+            pos += value.length();
+        }
+    }
+    return result;
+}
+
 } // namespace docusheet::core
 
 // ==============================================================================
@@ -512,6 +528,46 @@ Java_com_example_util_NativeEngineBridge_swapParagraphNative(
 
     env->ReleaseStringUTFChars(full_text, chars);
     return create_text_operation_result(env, res);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_example_util_NativeEngineBridge_expandMacroTemplateNative(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring template_text,
+    jobjectArray keys_array,
+    jobjectArray values_array
+) {
+    if (!template_text) return nullptr;
+    const char* t_chars = env->GetStringUTFChars(template_text, nullptr);
+    std::string_view tmpl_view(t_chars);
+
+    std::vector<std::pair<std::string, std::string>> variables;
+    if (keys_array && values_array) {
+        jsize k_len = env->GetArrayLength(keys_array);
+        jsize v_len = env->GetArrayLength(values_array);
+        jsize count = std::min(k_len, v_len);
+        variables.reserve(count);
+        for (jsize i = 0; i < count; ++i) {
+            auto j_key = (jstring)env->GetObjectArrayElement(keys_array, i);
+            auto j_val = (jstring)env->GetObjectArrayElement(values_array, i);
+            if (j_key && j_val) {
+                const char* k_chars = env->GetStringUTFChars(j_key, nullptr);
+                const char* v_chars = env->GetStringUTFChars(j_val, nullptr);
+                variables.emplace_back(std::string(k_chars), std::string(v_chars));
+                env->ReleaseStringUTFChars(j_key, k_chars);
+                env->ReleaseStringUTFChars(j_val, v_chars);
+            }
+            if (j_key) env->DeleteLocalRef(j_key);
+            if (j_val) env->DeleteLocalRef(j_val);
+        }
+    }
+
+    docusheet::core::TextManipulator manipulator;
+    std::string expanded = manipulator.expand_macro_template(tmpl_view, variables);
+
+    env->ReleaseStringUTFChars(template_text, t_chars);
+    return env->NewStringUTF(expanded.c_str());
 }
 
 }

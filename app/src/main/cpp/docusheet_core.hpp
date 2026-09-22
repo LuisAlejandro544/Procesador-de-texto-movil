@@ -168,6 +168,14 @@ public:
         size_t cursor_end,
         bool move_up
     );
+
+    /**
+     * Expande variables dinámicas de una plantilla de macro ({FECHA}, {TITULO}, etc.).
+     */
+    [[nodiscard]] std::string expand_macro_template(
+        std::string_view template_text,
+        const std::vector<std::pair<std::string, std::string>>& variables
+    );
 };
 
 } // namespace docusheet::core

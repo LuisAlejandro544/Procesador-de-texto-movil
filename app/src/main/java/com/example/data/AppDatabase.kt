@@ -6,6 +6,12 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.example.data.macro.MacroDao
+import com.example.data.macro.MacroEntity
+import com.example.data.macro.MacroSeedData
+import com.example.data.synonym.SynonymDao
+import com.example.data.synonym.SynonymEntity
+import com.example.data.synonym.ThesaurusSeedData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -13,13 +19,21 @@ import kotlinx.coroutines.launch
 /**
  * AppDatabase: Base de datos Room principal de la aplicación.
  * 
- * Gestiona la tabla de documentos e inicializa un documento de bienvenida
- * para que el usuario pueda escribir y probar el procesador de texto desde el primer momento.
+ * Gestiona la tabla de documentos, el diccionario local de sinónimos offline (Thesaurus),
+ * y el catálogo de macros y plantillas automatizadas con variables dinámicas.
+ * Inicializa un documento de bienvenida para que el usuario pueda escribir y probar
+ * el procesador de texto desde el primer momento.
  */
-@Database(entities = [DocumentEntity::class], version = 3, exportSchema = false)
+@Database(
+    entities = [DocumentEntity::class, SynonymEntity::class, MacroEntity::class],
+    version = 5,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun documentDao(): DocumentDao
+    abstract fun synonymDao(): SynonymDao
+    abstract fun macroDao(): MacroDao
 
     companion object {
         @Volatile
@@ -32,6 +46,25 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS macros (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        triggerKeyword TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        templateContent TEXT NOT NULL,
+                        isPredefined INTEGER NOT NULL,
+                        iconName TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -39,7 +72,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "docusheet_database"
                 )
-                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_4_5)
                     .fallbackToDestructiveMigration()
                     .addCallback(DatabaseCallback(scope))
                     .build()
@@ -56,8 +89,34 @@ abstract class AppDatabase : RoomDatabase() {
                 INSTANCE?.let { database ->
                     scope.launch(Dispatchers.IO) {
                         populateInitialDocument(database.documentDao())
+                        populateInitialThesaurus(database.synonymDao())
+                        populateInitialMacros(database.macroDao())
                     }
                 }
+            }
+
+            override fun onOpen(db: SupportSQLiteDatabase) {
+                super.onOpen(db)
+                INSTANCE?.let { database ->
+                    scope.launch(Dispatchers.IO) {
+                        // Verifica que el tesauro esté poblado si la base ya existía
+                        if (database.synonymDao().countEntries() == 0) {
+                            populateInitialThesaurus(database.synonymDao())
+                        }
+                        // Verifica que las macros iniciales estén pobladas
+                        if (database.macroDao().countMacros() == 0) {
+                            populateInitialMacros(database.macroDao())
+                        }
+                    }
+                }
+            }
+
+            private suspend fun populateInitialThesaurus(dao: SynonymDao) {
+                dao.insertAll(ThesaurusSeedData.INITIAL_ENTRIES)
+            }
+
+            private suspend fun populateInitialMacros(dao: MacroDao) {
+                dao.insertAll(MacroSeedData.INITIAL_MACROS)
             }
 
             private suspend fun populateInitialDocument(dao: DocumentDao) {

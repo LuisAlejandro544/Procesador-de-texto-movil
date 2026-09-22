@@ -83,6 +83,20 @@ DocuSheet es un procesador de textos para Android cuyo objetivo primordial es re
    - Motor de paginación automática continua: cuando el texto supera el umbral fijado para el formato de papel seleccionado, el sistema divide y añade una nueva hoja correlativa en la cascada continua sin interrumpir la escritura.
    - Esquema Room v3 con migración segura `MIGRATION_2_3` para los campos `pageSize` y `wordsPerPage`.
 
+14. **Buscador de PC, Radar de Redundancia (Apache Lucene) y Diccionario de Sinónimos Offline**:
+   - Integración de **Apache Lucene 8.11.2** (`lucene-core`, `lucene-analyzers-common`) con tokenización profunda en español (`SpanishAnalyzer`) y lematización morfológica (`SpanishLightStemmer`).
+   - Módulo `StyleRadarEngine.kt`: mide las distancias de proximidad de lexemas para advertir sobre repetición excesiva (Crítico <40 palabras, Moderado 40..120 palabras) y emite diagnósticos con recomendaciones de estilo.
+   - Diccionario local 100% offline con Room (`SynonymEntity`, `SynonymDao`, esquema v4 con `MIGRATION_3_4`) y catálogo base `ThesaurusSeedData` con cientos de relaciones léxicas.
+   - Barra flotante táctil `DocuSheetSearchRadarBar`: contador dinámico de coincidencias de PC (ej. *«1 / 5»*), botones de navegación rápida anterior/siguiente, panel desplegable de reemplazo y carrusel deslizante (`LazyRow`) de chips de sinónimos listos para sustituir al instante.
+   - Enlace directo desde la barra de selección contextual de PC `DocuSheetPcSelectionBar` con el botón *«Sinónimos/Radar»*.
+
+15. **Sistema de Macros, Automatizaciones y Expansión Dinámica de Plantillas**:
+   - Motor de sustitución tokenizada acelerada por hardware nativo en C++20 (`expand_macro_template` en `docusheet_core.cpp`) con interoperabilidad JNI en `NativeEngineBridge.kt` y respaldo seguro en `MacroEngine.kt`.
+   - Soporte completo para variables contextuales dinámicas: `{FECHA}`, `{FECHA_ISO}`, `{HORA}`, `{TITULO}`, `{AUTOR}`, `{TOTAL_PALABRAS}`, `{PAGINA_ACTUAL}`, `{TOTAL_PAGINAS}`, `{FORMATO_HOJA}`, `{CLIPBOARD}`, `{SELECCION}`, `{DISPARADOR}`, `{TABLA_2X3}`, `{TABLA_3X3}`, `{LISTA_TAREAS}`, `{ALEATORIO_ID}`, `{HASH_DOC}`.
+   - Detección en vivo de disparadores en la hoja de papel (`checkAndExpandMacroTrigger`): al tipear `:acta:`, `:carta:`, `:minuta:` o atajos personalizados, se sustituyen automáticamente por el cuerpo estructurado de la plantilla.
+   - Doble interfaz táctil accesible: panel modal inferior en el editor `DocuSheetMacroBottomSheet.kt` para inserción en 1 toque, y pantalla dedicada de gestión y laboratorio `MacroManagerScreen.kt` accesible desde `AboutScreen` y `DocuSheetNavGraph`.
+   - Persistencia local en Room v5 con entidad `MacroEntity`, `MacroDao`, repositorio `MacroRepository` y migración segura `MIGRATION_4_5`.
+
 ---
 
 ## 🛡️ Reglas y Restricciones Estrictas

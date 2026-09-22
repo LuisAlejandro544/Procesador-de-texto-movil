@@ -135,11 +135,73 @@
 - **Modos de visualización**: Alterna entre el **Modo Edición** (con cursor y teclado) y el **Modo Lectura** (vista de hoja limpia e inmersiva con renderizado tipográfico).
 - **6 Acabados de Papel**: Blanco Clásico, Marfil Cálido, Rayado Cuaderno, Cuadriculado Milimetrado, Sepia Papiro y Carbón Noche.
 
+### 12. Buscador de PC, Radar de Redundancia (Análisis de Proximidad) y Diccionario de Sinónimos Offline
+- **Buscador y Reemplazador Estilo PC (`DocuSheetSearchRadarBar`)**:
+  - Panel flotante táctil con botones mínimos de 48x48 dp, búsqueda en vivo e integración con el cursor de la hoja física.
+  - Contador de posición de ocurrencias en tiempo real (ejemplo: *«3 / 14»*).
+  - Carrusel de navegación rápido con botones de salto anterior (`←`) y siguiente (`→`).
+  - Modo expandible de **Reemplazar** individual y **Reemplazar Todo** con retroalimentación instantánea.
+- **Detector de Redundancia y Radar de Estilo (Análisis de Proximidad)**:
+  - Potenciado por **Apache Lucene** (`lucene-core` y `lucene-analyzers-common`) con tokenización profunda mediante `SpanishAnalyzer` y lematización avanzada mediante `SpanishLightStemmer`.
+  - Mide la distancia en palabras entre apariciones de un mismo lexema:
+    - *Distancia Crítica (<40 palabras)*: Advertencia destacada en rojo ante repetición excesiva en el mismo párrafo o párrafos adyacentes.
+    - *Distancia Moderada (40 a 120 palabras)*: Advertencia preventiva en ámbar.
+    - *Distancia Aceptable (>120 palabras)*: Distribución léxica sana.
+  - Diagnóstico editorial con cálculo de densidad léxica y sugerencia de acción correctiva en español.
+- **Diccionario Local de Sinónimos en un Solo Toque (100% Offline)**:
+  - Base de datos local en Room (`SynonymEntity`, `SynonymDao`) precargada con términos y sinónimos en español clasificados por categoría gramatical.
+  - Búsqueda dual: coincidencia exacta del término y búsqueda por raíz lematizada (stemming).
+  - **Carrusel horizontal deslizable (`LazyRow`) de chips táctiles**: al tocar un chip de sinónimo, este sustituye inmediatamente la palabra en la hoja física preservando mayúsculas, actualizando el historial de deshacer/rehacer y recalculando el radar de redundancia en vivo.
+- **Acceso Directo desde la Selección de Texto**:
+  - Al seleccionar cualquier palabra en la hoja, la barra contextual de PC `DocuSheetPcSelectionBar` ofrece el botón directo *«Sinónimos/Radar»* para abrir el panel instantáneamente.
+
+### 13. Sistema de Macros, Automatizaciones y Expansión Dinámica de Plantillas
+- **Motor de Reemplazo de Alto Rendimiento en C++20**:
+  - Sustitución instantánea de variables de plantilla mediante `expand_macro_template` en `docusheet_core.cpp` con `std::string_view` y asignación de memoria previa, con respaldo seguro en Kotlin (`MacroEngine.kt`).
+- **Variables Dinámicas del Sistema y Documento**:
+  - `{FECHA}`: Fecha formal en español (ejemplo: *21 de septiembre de 2026*).
+  - `{FECHA_ISO}`: Fecha estándar internacional (ejemplo: *2026-09-21*).
+  - `{HORA}`: Hora y minutos actuales (ejemplo: *16:45*).
+  - `{TITULO}`: Título asignado a la hoja actual.
+  - `{AUTOR}`: Nombre o firma del redactor responsable.
+  - `{TOTAL_PALABRAS}`: Conteo de palabras exactas del documento al momento de la ejecución.
+  - `{PAGINA_ACTUAL}`: Número de hoja física actual.
+  - `{TOTAL_PAGINAS}`: Total de hojas físicas proyectadas del documento.
+  - `{FORMATO_HOJA}`: Formato físico seleccionado (A4, Letter, Legal, A5, Custom).
+  - `{CLIPBOARD}`: Texto copiado actualmente en el portapapeles del dispositivo.
+  - `{SELECCION}`: Texto seleccionado por el usuario en la hoja al invocar la macro.
+  - `{DISPARADOR}`: Palabra clave o atajo activado.
+  - `{TABLA_2X3}` / `{TABLA_3X3}`: Tablas preformateadas listas para rellenar.
+  - `{LISTA_TAREAS}`: Bloque de tareas formateadas con casillas interactivas `[ ]`.
+  - `{ALEATORIO_ID}`: Código alfanumérico único aleatorio para radicación y folios (ejemplo: *DOC-94821*).
+  - `{HASH_DOC}`: Firma criptográfica o identificador de integridad del texto.
+- **Colección de Macros Pre-Construidas Listas para Usar**:
+  - **Acta de Reunión (`:acta:`)**: Estructura ejecutiva formal con fecha, hora, asistentes, orden del día, acuerdos y compromisos.
+  - **Carta Formal de Solicitud (`:carta:`)**: Modelo corporativo con fecha, encabezado formal, cuerpo petitorio y espacio de firma.
+  - **Minuta Técnica (`:minuta:`)**: Ficha técnica de ingeniería con objetivos, metodología, arquitectura y checklist de control.
+  - **Resumen Ejecutivo (`:resumen:`)**: Ficha de dirección con contexto, objetivos, métricas y conclusiones clave.
+  - **Ficha de Proyecto (`:proyecto:`)**: Documento estructurado con alcance, responsables, hitos y tabla de balance.
+  - **Lista de Tareas / Sprint (`:tareas:`)**: Matriz operativa con casillas `[ ]` categorizadas en tareas prioritarias, secundarias y de seguimiento.
+  - **Cita Bibliográfica Formal (`:cita:`)**: Bloque de referencia bibliográfica con estilo editorial destacado.
+- **Expansión Automática al Escribir (In-place Triggering)**:
+  - Al escribir en la hoja el atajo de la macro (ejemplo: `:acta:` o `:carta:`) seguido de dos puntos, espacio o salto de línea, DocuSheet detecta el disparador y lo expande automáticamente en el cursor sin necesidad de abrir menús.
+- **Panel Rápido Desplegable (`DocuSheetMacroBottomSheet`)**:
+  - Accesible con un toque desde el botón *«Macros»* de la barra de herramientas del editor.
+  - Pestañas por categoría (*Documentos*, *Editorial*, *Trabajo*, *Estructura*), chips de variables dinámicas, botón de ejecución inmediata y modal de creación de macros personalizadas.
+- **Pantalla Completa de Gestión y Laboratorio de Macros (`MacroManagerScreen`)**:
+  - Pantalla dedicada con pestaña de catálogo, laboratorio de prueba y evaluación de variables en tiempo real contra el documento activo, y guía visual de todas las variables dinámicas disponibles.
+- **Persistencia en Room Database v5**:
+  - Entidad `MacroEntity`, `MacroDao`, repositorio asíncrono `MacroRepository` y migración incremental `MIGRATION_4_5`.
+
 ---
 
 ## 🛠️ Stack Tecnológico Multi-Lenguaje y Compilación Nativa
 
 - **Capa Visual y UI Táctil**: **Kotlin** con **Jetpack Compose** y **Material Design 3 (M3)**
+- **Motor de Macros y Automatizaciones**: **C++20** (`expand_macro_template` con `std::string_view`) + **Kotlin** (`MacroEngine`, `MacroRepository`, `MacroManagerScreen`, `DocuSheetMacroBottomSheet`)
+- **Motor de Análisis de Texto y Lingüística**: **Apache Lucene (v8.11.2)** (`lucene-core`, `lucene-analyzers-common`)
+  - Tokenización formal en español (`SpanishAnalyzer`), lematización (`SpanishLightStemmer`) y análisis métrico de proximidad de lexemas.
+- **Diccionario de Sinónimos Offline**: Base de datos local integrada en Room con repositorio asíncrono y precarga de seed léxico en español.
 - **Motor Central de Documentos**: **Rust (Edición 2021 / v1.75+)** (`rust-core`)
   - *Piece Table* y estructuras *Rope* para búfer de edición ilimitado sin pausas por Garbage Collection.
   - Métodos nativos de transposición atómica `swap_ranges` y desplazamiento `move_range` con punteros de índice continuos.
@@ -154,7 +216,7 @@
   - Tarea Gradle `buildRustCore` vinculada a `preBuild` que ejecuta la compilación de Rust antes del ensamblado de CMake.
   - Empaquetado automático de ambos binarios `.so` en el APK final para todas las arquitecturas de 32 y 64 bits.
 - **Puente Interoperable**: **CXX** (Rust <-> C++20 de cero costo) y enlaces **JNI** (`NativeEngineBridge`).
-- **Persistencia**: Room Database (v3 con `alignment`, `pageSize` y `wordsPerPage`, KSP + Kotlin Coroutines & Flow)
+- **Persistencia**: Room Database (v5 con `documents`, `synonyms` y `macros`, KSP + Kotlin Coroutines & Flow)
 - **Gestión Inteligente de Memoria y Caché**: `DocuSheetCacheManager` (política LRU, tope RAM 25%, poda de huérfanos y compresión balanceada)
 - **Procesamiento de Imágenes**: Android Photo Picker nativo (`PickVisualMedia`) + Coil Compose (`AsyncImage`)
 - **Formatos de Hoja y Paginación**: Catálogo `PageFormat` (A4, Letter, Legal, A5, Custom) con segmentación dinámica por palabras

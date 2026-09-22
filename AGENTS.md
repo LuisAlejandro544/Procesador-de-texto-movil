@@ -18,9 +18,11 @@ Este documento define las reglas de comportamiento, convenciones de ingeniería 
 ### 1. Modularidad y Separación de Pantallas
 - No amontonar todas las funciones en una sola pantalla. Se debe mantener el flujo modular a través de `DocuSheetNavGraph` y pantallas dedicadas:
   - `DocumentListScreen`: Explorador, biblioteca de hojas y miniaturas.
-  - `DocumentEditorScreen`: Área de trabajo con la hoja de papel física, barra de formato y barra de estado de PC.
+  - `DocumentEditorScreen`: Área de trabajo con la hoja de papel física, barra de formato, macros y barra de estado de PC.
   - `DocumentSettingsScreen`: Personalización física del papel, acabados y familias tipográficas.
   - `AboutScreen`: Centro de métricas cuantitativas, objetivo diario y gráficas de productividad.
+  - `PdfViewerScreen`: Visor nativo de alta resolución con zoom gestual e integración "Abrir con".
+  - `MacroManagerScreen`: Centro de gestión de macros, laboratorio de variables dinámicas y creación de plantillas.
 
 ### 2. Manejo de Hilos y Rendimiento
 - **Prohibido bloquear el hilo principal (Main Thread)** con operaciones de lectura, escritura, generación de PDF o cómputos pesados de base de datos.
@@ -49,3 +51,8 @@ Este documento define las reglas de comportamiento, convenciones de ingeniería 
 
 ### 8. Verificación de Compilación
 - Cada vez que se realicen cambios en el código, se debe verificar la compilación exitosa utilizando la herramienta de compilación (`compile_applet`) antes de dar por finalizada la tarea.
+
+### 9. Sistema de Macros, Variables Dinámicas y Automatizaciones
+- El motor de sustitución de variables dinámicas debe preservar la integridad del texto, el cursor y el historial de deshacer/rehacer.
+- El procesamiento nativo acelerado debe ejecutarse mediante JNI en `NativeEngineBridge.expandMacroTemplateSafe` con respaldo en Kotlin en `MacroEngine`.
+- Las operaciones sobre la base de datos de macros (`MacroDao`, `MacroRepository`) deben ejecutarse en `Dispatchers.IO`.

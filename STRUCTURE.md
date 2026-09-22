@@ -60,27 +60,40 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 │       ├── data/                        # Capa de Persistencia Local (Room / SQLite)
 │       │   ├── DocumentEntity.kt        # Entidad Room que modela la hoja de texto y sus atributos
 │       │   ├── DocumentDao.kt           # Interfaz DAO con consultas SQL reactivas (Flow) y operaciones CRUD
-│       │   ├── AppDatabase.kt           # Base de datos Room con migración y precarga de documento inicial
-│       │   └── DocumentRepository.kt    # Repositorio que aísla las operaciones de base de datos en Dispatchers.IO
+│       │   ├── AppDatabase.kt           # Base de datos Room (v5) con migraciones y precarga
+│       │   ├── DocumentRepository.kt    # Repositorio que aísla las operaciones de base de datos en Dispatchers.IO
+│       │   ├── macro/                   # Motor de Macros y Plantillas Dinámicas
+│       │   │   ├── MacroEntity.kt       # Entidad Room para plantillas, disparadores y variables dinámicas
+│       │   │   ├── MacroDao.kt          # Consultas para macros del sistema y personalizadas
+│       │   │   ├── MacroSeedData.kt     # Catálogo de macros pre-hechas (:acta:, :carta:, :minuta:, etc.)
+│       │   │   └── MacroRepository.kt   # Repositorio asíncrono en Dispatchers.IO
+│       │   └── synonym/                 # Motor de Diccionario de Sinónimos Local (100% Offline)
+│       │       ├── SynonymEntity.kt     # Entidad Room que mapea vocablos, sinónimos, raíz lematizada y categoría
+│       │       ├── SynonymDao.kt        # Consultas de coincidencia exacta y por lema (stemming)
+│       │       ├── ThesaurusSeedData.kt # Catálogo base en español precargado al inicializar la base de datos
+│       │       └── ThesaurusRepository.kt # Acceso asíncrono y resolución de sinónimos en segundo plano
 │       │
 │       ├── ui/
-│       │   ├── DocumentViewModel.kt     # Gestor de estado: deshacer/rehacer, inserción de tablas, autoguardado y métricas
+│       │   ├── DocumentViewModel.kt     # Gestor de estado: macros, buscador, radar de estilo, sinónimos, deshacer/rehacer y métricas
 │       │   │
 │       │   ├── components/              # Componentes visuales reutilizables
 │       │   │   ├── PaperSheet.kt        # Lienzo de hoja de papel, Cascada Continua, reglas, guías y parser de bloques
 │       │   │   ├── TableSheetBlock.kt   # Renderizador físico de tablas y cuadrículas editoriales sobre la hoja
 │       │   │   ├── TableInsertDialog.kt # Diálogo táctil de configuración e inserción de tablas
-│       │   │   └── DocuSheetSelectionToolbar.kt # Barra contextual estilo PC (reemplazo del selector del fabricante) y paleta de tinta
+│       │   │   ├── DocuSheetSearchRadarBar.kt # Panel táctil de búsqueda, reemplazo, carrusel y radar de redundancia
+│       │   │   ├── DocuSheetSelectionToolbar.kt # Barra contextual estilo PC (reemplazo del selector del fabricante) y paleta de tinta
+│       │   │   └── DocuSheetMacroBottomSheet.kt # Panel táctil modal de macros, variables dinámicas y creación rápida
 │       │   │
 │       │   ├── navigation/              # Capa de Navegación
-│       │   │   └── NavGraph.kt          # Grafo central con rutas: documents, editor, settings, about
+│       │   │   └── NavGraph.kt          # Grafo central con rutas: documents, editor, settings, about, macros
 │       │   │
 │       │   ├── screens/                 # Pantallas completas de la aplicación
 │       │   │   ├── DocumentListScreen.kt# Biblioteca de documentos, selector de PDFs externos, miniaturas y plantillas
-│       │   │   ├── DocumentEditorScreen.kt # Pantalla del editor con barra de herramientas, exportación y cascada
+│       │   │   ├── DocumentEditorScreen.kt # Pantalla del editor con barra de herramientas, macros, exportación y cascada
 │       │   │   ├── DocumentSettingsScreen.kt # Ajustes de papel (texturas, fuentes Serif/Sans/Mono/Cursive)
-│       │   │   ├── AboutScreen.kt       # Centro de Métricas Detalladas, anillo de progreso y Gráficas
-│       │   │   └── PdfViewerScreen.kt   # Visor nativo de PDF de alta resolución con zoom táctil y estética de hoja
+│       │   │   ├── AboutScreen.kt       # Centro de Métricas Detalladas, anillo de progreso, gráficas y acceso a macros
+│       │   │   ├── PdfViewerScreen.kt   # Visor nativo de PDF de alta resolución con zoom táctil y estética de hoja
+│       │   │   └── MacroManagerScreen.kt# Gestor integral de macros, simulador de evaluación y catálogo de variables
 │       │   │
 │       │   └── theme/                   # Sistema de Diseño y Tokens
 │       │       ├── Color.kt             # Paleta de colores M3
@@ -91,7 +104,9 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 │           ├── DocumentExporter.kt      # Generación de PDF (A4), Markdown (.md), HTML Editorial y Texto Plano (.txt)
 │           ├── DocuSheetCacheManager.kt # Gestión inteligente de caché (RAM LRU 25%, disco 50MB, poda y persistencia de fotos)
 │           ├── PageFormat.kt            # Catálogo de formatos de hoja (A4, Letter, Legal, A5, Custom) y capacidad estándar
-│           └── NativeEngineBridge.kt    # Puente seguro de carga JNI para 'docusheet_core'
+│           ├── StyleRadarEngine.kt      # Motor de redundancia con Apache Lucene (SpanishAnalyzer, SpanishLightStemmer)
+│           ├── MacroEngine.kt           # Motor de evaluación de variables y detección de disparadores in-place
+│           └── NativeEngineBridge.kt    # Puente seguro de carga JNI para 'docusheet_core' (C++20 y Rust)
 │
 └── res/
     ├── xml/
@@ -102,7 +117,7 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 
 ---
 
-## 🗄️ Modelo de Datos: `DocumentEntity` (Base de Datos Room v3)
+## 🗄️ Modelo de Datos: `DocumentEntity` (Base de Datos Room v5)
 
 | Campo | Tipo | Descripción |
 |---|---|---|
@@ -119,6 +134,20 @@ El proyecto sigue una arquitectura desacoplada y de alto rendimiento que combina
 | `wordsPerPage` | `Int` | Límite máximo de palabras por hoja antes de generar página automática |
 | `createdAt` | `Long` | Timestamp de creación en milisegundos |
 | `updatedAt` | `Long` | Timestamp de última modificación |
+
+### 🗄️ Modelo de Datos: `MacroEntity` (Automatizaciones y Plantillas)
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | `Long` (Primary Key) | Identificador único autoincremental |
+| `name` | `String` | Título representativo de la macro |
+| `description` | `String` | Descripción explicativa de su propósito |
+| `triggerKeyword` | `String` | Atajo de teclado/escritura (ejemplo: `:acta:`, `:carta:`) |
+| `category` | `String` | Clasificación: `DOCUMENTOS`, `EDITORIAL`, `TRABAJO`, `ESTRUCTURA` |
+| `templateContent` | `String` | Cuerpo de la plantilla con etiquetas `{VARIABLE}` |
+| `isSystemDefault` | `Boolean` | Indicador si es plantilla de fábrica o creada por el usuario |
+| `usageCount` | `Int` | Frecuencia de uso para ordenamiento ergonómico |
+| `createdAt` | `Long` | Timestamp de registro |
 
 ---
 
@@ -165,6 +194,12 @@ DocuSheet incorpora un procesador híbrido de sintaxis enriquecida adaptado a ho
    - Renderizado en alta definición 2x con `android.graphics.pdf.PdfRenderer` en hilos de fondo (`Dispatchers.IO`), con reciclaje de bitmaps en `DisposableEffect`.
    - Estética idéntica a las hojas de DocuSheet, zoom gestual (pinch-to-zoom 0.75x a 3.5x), paneo, botones de escala y botón de compartir.
    - Exportador extendido a **HTML Editorial Estructurado** (con estilos CSS integrados para lectura tipo libro) y **Texto Plano (.txt)** para interoperabilidad total.
+9. **Sistema de Macros, Automatizaciones y Expansión Dinámica (`MacroEngine.kt` & `docusheet_core.cpp`)**:
+   - Sustitución de etiquetas `{VARIABLE}` ejecutada en C++20 con `std::string_view` y punteros de memoria directos (`expand_macro_template`).
+   - Variables contextuales evaluadas: `{FECHA}`, `{FECHA_ISO}`, `{HORA}`, `{TITULO}`, `{AUTOR}`, `{TOTAL_PALABRAS}`, `{PAGINA_ACTUAL}`, `{TOTAL_PAGINAS}`, `{FORMATO_HOJA}`, `{CLIPBOARD}`, `{SELECCION}`, `{DISPARADOR}`, `{TABLA_2X3}`, `{TABLA_3X3}`, `{LISTA_TAREAS}`, `{ALEATORIO_ID}`, `{HASH_DOC}`.
+   - Detección en vivo de disparadores (`checkAndExpandMacroTrigger`) al escribir en la hoja física (`:acta:`, `:carta:`, `:minuta:`, etc.).
+   - Panel modal de selección rápida `DocuSheetMacroBottomSheet.kt` en el editor y pantalla de gestión `MacroManagerScreen.kt` con pestaña de simulación y evaluación en tiempo real.
+   - Persistencia local en SQLite mediante Room v5 (`MacroEntity`, `MacroDao`, `MacroRepository`, `MIGRATION_4_5`).
 
 ---
 

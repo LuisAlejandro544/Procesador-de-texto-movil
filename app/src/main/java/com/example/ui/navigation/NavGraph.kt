@@ -11,6 +11,7 @@ import com.example.ui.screens.AboutScreen
 import com.example.ui.screens.DocumentEditorScreen
 import com.example.ui.screens.DocumentListScreen
 import com.example.ui.screens.DocumentSettingsScreen
+import com.example.ui.screens.MacroManagerScreen
 import com.example.ui.screens.PdfViewerScreen
 import android.net.Uri
 
@@ -97,11 +98,24 @@ fun DocuSheetNavGraph(
                 viewModel = viewModel,
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onNavigateToMacros = {
+                    navController.navigate("macros")
                 }
             )
         }
 
-        // Pantalla 5: Visor Nativo de PDF de Alta Fidelidad
+        // Pantalla 5: Gestor Completo de Macros y Variables Dinámicas
+        composable(route = "macros") {
+            MacroManagerScreen(
+                viewModel = viewModel,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        // Pantalla 6: Visor Nativo de PDF de Alta Fidelidad
         composable(
             route = "pdf_viewer?uri={uri}",
             arguments = listOf(

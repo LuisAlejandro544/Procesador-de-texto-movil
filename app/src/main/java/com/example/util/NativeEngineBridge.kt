@@ -359,5 +359,50 @@ object NativeEngineBridge {
             fallbackSwapRanges(fullText, currStart, currEnd, nextStart, nextEnd)
         }
     }
+
+    // ==========================================================================
+    // Motor de Macros y Plantillas Automatizadas (C++20 Expansion Engine)
+    // ==========================================================================
+
+    /**
+     * Expande de forma atómica y vectorizada las variables dinámicas de una plantilla en C++20.
+     */
+    external fun expandMacroTemplateNative(
+        templateText: String,
+        keys: Array<String>,
+        values: Array<String>
+    ): String
+
+    /**
+     * Expansión segura de plantillas con fallback a Kotlin en caso de fallo de enlace JNI.
+     */
+    fun expandMacroTemplateSafe(
+        templateText: String,
+        keys: Array<String>,
+        values: Array<String>
+    ): String {
+        return if (isNativeLoaded) {
+            try {
+                expandMacroTemplateNative(templateText, keys, values)
+            } catch (e: UnsatisfiedLinkError) {
+                fallbackExpandMacro(templateText, keys, values)
+            }
+        } else {
+            fallbackExpandMacro(templateText, keys, values)
+        }
+    }
+
+    private fun fallbackExpandMacro(
+        templateText: String,
+        keys: Array<String>,
+        values: Array<String>
+    ): String {
+        var res = templateText
+        val count = minOf(keys.size, values.size)
+        for (i in 0 until count) {
+            res = res.replace(keys[i], values[i])
+        }
+        return res
+    }
 }
 

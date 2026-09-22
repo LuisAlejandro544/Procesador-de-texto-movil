@@ -24,6 +24,15 @@ import com.example.util.TextOperationResult
 import com.example.util.DocuSheetCacheManager
 import com.example.util.CacheStats
 import com.example.util.PageFormat
+import com.example.data.synonym.ThesaurusRepository
+import com.example.util.StyleRadarEngine
+import com.example.util.StyleRadarReport
+import com.example.util.SearchMatch
+import com.example.util.ProximityLevel
+import com.example.data.macro.MacroEntity
+import com.example.data.macro.MacroRepository
+import com.example.util.MacroEngine
+import com.example.util.MacroExecutionContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,7 +59,63 @@ data class MarkedSwapBlock(
 class DocumentViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: DocumentRepository
+    private val thesaurusRepository: ThesaurusRepository
+    private val macroRepository: MacroRepository
+    private val styleRadarEngine = StyleRadarEngine()
+
     val allDocuments: StateFlow<List<DocumentEntity>>
+
+    // ==========================================================================
+    // Estado del Sistema de Macros y Plantillas Automatizadas
+    // ==========================================================================
+    val allMacros: StateFlow<List<MacroEntity>>
+
+    // Visibilidad del panel inferior de macros en el editor
+    private val _isMacroSheetVisible = MutableStateFlow(false)
+    val isMacroSheetVisible = _isMacroSheetVisible.asStateFlow()
+
+    // Categoría seleccionada en el carrusel de macros ("TODAS", "TRABAJO", etc.)
+    private val _selectedMacroCategory = MutableStateFlow("TODAS")
+    val selectedMacroCategory = _selectedMacroCategory.asStateFlow()
+
+    // ==========================================================================
+    // Estado del Buscador Avanzado, Radar de Redundancia y Carrusel de Sinónimos
+    // ==========================================================================
+    // Visibilidad del panel de búsqueda y radar sobre el editor
+    private val _isEditorSearchVisible = MutableStateFlow(false)
+    val isEditorSearchVisible = _isEditorSearchVisible.asStateFlow()
+
+    // Consulta de búsqueda en el documento
+    private val _editorSearchQuery = MutableStateFlow("")
+    val editorSearchQuery = _editorSearchQuery.asStateFlow()
+
+    // Texto de reemplazo (Modo Reemplazar estilo PC)
+    private val _editorReplaceQuery = MutableStateFlow("")
+    val editorReplaceQuery = _editorReplaceQuery.asStateFlow()
+
+    // Si la barra de reemplazo está desplegada
+    private val _isReplaceBarExpanded = MutableStateFlow(false)
+    val isReplaceBarExpanded = _isReplaceBarExpanded.asStateFlow()
+
+    // Coincidencias encontradas con offsets y niveles de proximidad de Lucene
+    private val _editorSearchMatches = MutableStateFlow<List<SearchMatch>>(emptyList())
+    val editorSearchMatches = _editorSearchMatches.asStateFlow()
+
+    // Índice de la coincidencia activa en el carrusel (base 0)
+    private val _currentSearchMatchIndex = MutableStateFlow(0)
+    val currentSearchMatchIndex = _currentSearchMatchIndex.asStateFlow()
+
+    // Reporte del Radar de Estilo y Detección de Redundancia
+    private val _currentStyleRadarReport = MutableStateFlow<StyleRadarReport?>(null)
+    val currentStyleRadarReport = _currentStyleRadarReport.asStateFlow()
+
+    // Lista de sinónimos offline disponibles para la palabra activa
+    private val _currentSynonyms = MutableStateFlow<List<String>>(emptyList())
+    val currentSynonyms = _currentSynonyms.asStateFlow()
+
+    // Estado de análisis en curso
+    private val _isAnalyzingStyle = MutableStateFlow(false)
+    val isAnalyzingStyle = _isAnalyzingStyle.asStateFlow()
 
     // Filtro de búsqueda en la biblioteca de documentos
     private val _searchQuery = MutableStateFlow("")
@@ -142,6 +207,8 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     init {
         val database = AppDatabase.getDatabase(application, viewModelScope)
         repository = DocumentRepository(database.documentDao())
+        thesaurusRepository = ThesaurusRepository(database.synonymDao())
+        macroRepository = MacroRepository(database.macroDao())
 
         allDocuments = repository.allDocuments.stateIn(
             scope = viewModelScope,
@@ -149,7 +216,14 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
             initialValue = emptyList()
         )
 
+        allMacros = macroRepository.allMacros.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
         viewModelScope.launch(Dispatchers.IO) {
+            thesaurusRepository.ensureInitialized()
             DocuSheetCacheManager.autoPruneIfExceeded(application, emptyList())
             refreshCacheStats()
         }
@@ -251,9 +325,20 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
      * Actualiza el TextFieldValue manteniendo el cursor y la selección activa de PC.
      */
     fun onTextFieldValueChange(newValue: TextFieldValue) {
+        val oldText = _editorContent.value
         _editorTextFieldValue.value = newValue
-        if (newValue.text != _editorContent.value) {
+        if (newValue.text != oldText) {
             onContentChanged(newValue.text)
+            // Si el usuario escribe y termina un disparador con ':' o espacio, expandirlo automáticamente
+            if (newValue.text.length > oldText.length) {
+                val cursor = newValue.selection.start.coerceIn(0, newValue.text.length)
+                if (cursor > 0) {
+                    val lastChar = newValue.text[cursor - 1]
+                    if (lastChar == ':' || lastChar == ' ' || lastChar == '\n') {
+                        checkAndExpandMacroTrigger()
+                    }
+                }
+            }
         }
     }
 
@@ -1106,5 +1191,387 @@ class DocumentViewModel(application: Application) : AndroidViewModel(application
     fun getSpeakingTimeMinutes(text: String): Int {
         val words = getWordCount(text)
         return maxOf(1, (words + 129) / 130)
+    }
+
+    // ==========================================================================
+    // Módulo: Buscador Avanzado, Radar de Redundancia y Carrusel de Sinónimos
+    // ==========================================================================
+
+    /**
+     * Abre el panel de búsqueda y radar de redundancia.
+     * Si hay texto seleccionado o se pasa una palabra inicial, la busca inmediatamente.
+     */
+    fun openEditorSearch(initialWord: String? = null) {
+        _isEditorSearchVisible.value = true
+        val tfv = _editorTextFieldValue.value
+        val sel = tfv.selection
+        val txt = tfv.text
+        val target = initialWord ?: run {
+            val selection = if (!sel.collapsed && sel.min < txt.length && sel.max <= txt.length) {
+                txt.substring(sel.min, sel.max).trim()
+            } else ""
+            if (selection.isNotEmpty() && !selection.contains("\n")) selection else ""
+        }
+
+        if (target.isNotEmpty()) {
+            _editorSearchQuery.value = target
+            onEditorSearchQueryChanged(target)
+        } else if (_editorSearchQuery.value.isNotEmpty()) {
+            onEditorSearchQueryChanged(_editorSearchQuery.value)
+        }
+    }
+
+    /**
+     * Cierra el panel del buscador y radar de estilo, limpiando resaltados de búsqueda.
+     */
+    fun closeEditorSearch() {
+        _isEditorSearchVisible.value = false
+        _isReplaceBarExpanded.value = false
+        _editorSearchMatches.value = emptyList()
+        _currentStyleRadarReport.value = null
+        _currentSynonyms.value = emptyList()
+    }
+
+    /**
+     * Alterna la barra de reemplazo ("Reemplazar" estilo PC).
+     */
+    fun toggleReplaceBar() {
+        _isReplaceBarExpanded.value = !_isReplaceBarExpanded.value
+    }
+
+    /**
+     * Actualiza el término de búsqueda y ejecuta el análisis de proximidad con Apache Lucene.
+     */
+    fun onEditorSearchQueryChanged(newQuery: String) {
+        _editorSearchQuery.value = newQuery
+        if (newQuery.isBlank()) {
+            _editorSearchMatches.value = emptyList()
+            _currentSearchMatchIndex.value = 0
+            _currentStyleRadarReport.value = null
+            _currentSynonyms.value = emptyList()
+            return
+        }
+
+        executeSearchAnalysis(newQuery)
+    }
+
+    /**
+     * Actualiza el texto de sustitución en modo reemplazo.
+     */
+    fun onEditorReplaceQueryChanged(newReplace: String) {
+        _editorReplaceQuery.value = newReplace
+    }
+
+    /**
+     * Ejecuta el análisis de proximidad y radar de estilo sobre el texto del editor en segundo plano.
+     */
+    private fun executeSearchAnalysis(query: String) {
+        viewModelScope.launch(Dispatchers.Default) {
+            _isAnalyzingStyle.value = true
+            val content = _editorContent.value
+            val wordsPerPage = _activeDocument.value?.wordsPerPage ?: 350
+
+            val (matches, report) = styleRadarEngine.analyzeSearch(content, query, wordsPerPage)
+
+            _editorSearchMatches.value = matches
+            _currentStyleRadarReport.value = report
+
+            // Si hay coincidencias, asegurar índice válido y cargar sinónimos para la coincidencia actual
+            if (matches.isNotEmpty()) {
+                val safeIndex = _currentSearchMatchIndex.value.coerceIn(0, matches.size - 1)
+                _currentSearchMatchIndex.value = safeIndex
+                highlightAndSelectMatch(matches[safeIndex])
+                fetchSynonymsForWord(matches[safeIndex].matchedWord, report?.stem)
+            } else {
+                _currentSearchMatchIndex.value = 0
+                _currentSynonyms.value = emptyList()
+            }
+            _isAnalyzingStyle.value = false
+        }
+    }
+
+    /**
+     * Navega a la siguiente coincidencia en el carrusel (salto hacia adelante).
+     */
+    fun goToNextMatch() {
+        val matches = _editorSearchMatches.value
+        if (matches.isEmpty()) return
+
+        val nextIndex = (_currentSearchMatchIndex.value + 1) % matches.size
+        _currentSearchMatchIndex.value = nextIndex
+        val match = matches[nextIndex]
+        highlightAndSelectMatch(match)
+        fetchSynonymsForWord(match.matchedWord, _currentStyleRadarReport.value?.stem)
+    }
+
+    /**
+     * Navega a la coincidencia anterior en el carrusel (salto hacia atrás).
+     */
+    fun goToPreviousMatch() {
+        val matches = _editorSearchMatches.value
+        if (matches.isEmpty()) return
+
+        val prevIndex = if (_currentSearchMatchIndex.value - 1 < 0) matches.size - 1 else _currentSearchMatchIndex.value - 1
+        _currentSearchMatchIndex.value = prevIndex
+        val match = matches[prevIndex]
+        highlightAndSelectMatch(match)
+        fetchSynonymsForWord(match.matchedWord, _currentStyleRadarReport.value?.stem)
+    }
+
+    /**
+     * Resalta la coincidencia en la hoja de papel y posiciona la selección.
+     */
+    private fun highlightAndSelectMatch(match: SearchMatch) {
+        val text = _editorContent.value
+        val start = match.startOffset.coerceIn(0, text.length)
+        val end = match.endOffset.coerceIn(0, text.length)
+        if (start <= end) {
+            _editorTextFieldValue.value = _editorTextFieldValue.value.copy(
+                selection = TextRange(start, end)
+            )
+        }
+    }
+
+    /**
+     * Consulta el diccionario local de sinónimos en segundo plano (Dispatchers.IO).
+     */
+    private fun fetchSynonymsForWord(word: String, stem: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val list = thesaurusRepository.getSynonyms(word, stem)
+            _currentSynonyms.value = list
+        }
+    }
+
+    /**
+     * Sustituye la coincidencia actualmente seleccionada en el carrusel por un sinónimo elegido.
+     */
+    fun applySynonymToCurrentMatch(synonym: String) {
+        val matches = _editorSearchMatches.value
+        val currentIndex = _currentSearchMatchIndex.value
+        if (matches.isEmpty() || currentIndex !in matches.indices) return
+
+        val targetMatch = matches[currentIndex]
+        val currentText = _editorContent.value
+        val start = targetMatch.startOffset.coerceIn(0, currentText.length)
+        val end = targetMatch.endOffset.coerceIn(0, currentText.length)
+
+        if (start < end) {
+            val originalWord = currentText.substring(start, end)
+            // Preservar mayúscula inicial si la original empezaba con mayúscula
+            val formattedSynonym = if (originalWord.firstOrNull()?.isUpperCase() == true) {
+                synonym.replaceFirstChar { it.uppercase() }
+            } else {
+                synonym
+            }
+
+            val newText = currentText.substring(0, start) + formattedSynonym + currentText.substring(end)
+            onContentChanged(newText)
+            _editorTextFieldValue.value = TextFieldValue(
+                text = newText,
+                selection = TextRange(start + formattedSynonym.length)
+            )
+
+            _userFeedbackMessage.value = "Sustituido: «$originalWord» → «$formattedSynonym»"
+
+            // Re-ejecutar análisis de búsqueda
+            executeSearchAnalysis(_editorSearchQuery.value)
+        }
+    }
+
+    /**
+     * Reemplaza la coincidencia actual por el texto del campo de reemplazo.
+     */
+    fun replaceCurrentMatch() {
+        val replacement = _editorReplaceQuery.value
+        val matches = _editorSearchMatches.value
+        val currentIndex = _currentSearchMatchIndex.value
+        if (matches.isEmpty() || currentIndex !in matches.indices) return
+
+        val targetMatch = matches[currentIndex]
+        val currentText = _editorContent.value
+        val start = targetMatch.startOffset.coerceIn(0, currentText.length)
+        val end = targetMatch.endOffset.coerceIn(0, currentText.length)
+
+        if (start <= end) {
+            val originalWord = currentText.substring(start, end)
+            val newText = currentText.substring(0, start) + replacement + currentText.substring(end)
+            onContentChanged(newText)
+            _editorTextFieldValue.value = TextFieldValue(
+                text = newText,
+                selection = TextRange(start + replacement.length)
+            )
+
+            _userFeedbackMessage.value = "Reemplazado: «$originalWord» → «$replacement»"
+            executeSearchAnalysis(_editorSearchQuery.value)
+        }
+    }
+
+    /**
+     * Reemplaza todas las coincidencias encontradas por el texto de reemplazo de una sola vez.
+     */
+    fun replaceAllMatches() {
+        val query = _editorSearchQuery.value
+        val replacement = _editorReplaceQuery.value
+        val currentText = _editorContent.value
+        if (query.isBlank() || currentText.isBlank()) return
+
+        val matches = _editorSearchMatches.value
+        if (matches.isEmpty()) return
+
+        val count = matches.size
+        // Reemplazo respetando case-insensitive si es búsqueda normal
+        val newText = currentText.replace(query, replacement, ignoreCase = true)
+        if (newText != currentText) {
+            onContentChanged(newText)
+            _editorTextFieldValue.value = TextFieldValue(newText, TextRange(newText.length))
+            _userFeedbackMessage.value = "Se han reemplazado $count coincidencias de «$query»."
+            executeSearchAnalysis(query)
+        }
+    }
+
+    // ==========================================================================
+    // Operaciones del Sistema de Macros y Plantillas Automatizadas
+    // ==========================================================================
+
+    fun setMacroSheetVisible(visible: Boolean) {
+        _isMacroSheetVisible.value = visible
+    }
+
+    fun selectMacroCategory(category: String) {
+        _selectedMacroCategory.value = category
+    }
+
+    /**
+     * Ejecuta una macro evaluando sus variables dinámicas ({FECHA}, {TITULO}, etc.)
+     * e insertando el resultado en la hoja activa en el cursor o sobre la selección.
+     */
+    fun executeMacro(macro: MacroEntity, clipboardText: String = "") {
+        val activeDoc = _activeDocument.value
+        val currentTfv = _editorTextFieldValue.value
+        val fullText = currentTfv.text
+        val selMin = currentTfv.selection.min.coerceIn(0, fullText.length)
+        val selMax = currentTfv.selection.max.coerceIn(0, fullText.length)
+        val selectedText = if (selMin < selMax) fullText.substring(selMin, selMax) else ""
+
+        val currentText = _editorContent.value
+        val context = MacroExecutionContext(
+            documentTitle = _editorTitle.value.ifBlank { activeDoc?.title ?: "Documento Sin Título" },
+            authorName = "Redactor DocuSheet",
+            pageFormat = activeDoc?.pageSize ?: "A4",
+            currentPage = 1,
+            totalPages = getEstimatedPages(currentText),
+            totalWords = getWordCount(currentText),
+            selectedText = selectedText,
+            clipboardText = clipboardText
+        )
+
+        val expandedText = MacroEngine.evaluateTemplate(macro.templateContent, context)
+
+        val newText = if (selMin < selMax) {
+            fullText.substring(0, selMin) + expandedText + fullText.substring(selMax)
+        } else {
+            val cursor = currentTfv.selection.start.coerceIn(0, fullText.length)
+            fullText.substring(0, cursor) + expandedText + fullText.substring(cursor)
+        }
+
+        val newCursorPos = if (selMin < selMax) {
+            selMin + expandedText.length
+        } else {
+            currentTfv.selection.start.coerceIn(0, fullText.length) + expandedText.length
+        }
+
+        onContentChanged(newText)
+        _editorTextFieldValue.value = TextFieldValue(
+            text = newText,
+            selection = TextRange(newCursorPos)
+        )
+        _userFeedbackMessage.value = "Macro aplicada: «${macro.name}»"
+    }
+
+    /**
+     * Guarda una macro personalizada creada por el usuario con variables dinámicas.
+     */
+    fun createCustomMacro(
+        name: String,
+        description: String,
+        triggerKeyword: String,
+        category: String,
+        templateContent: String,
+        iconName: String = "description"
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cleanTrigger = if (triggerKeyword.isNotBlank()) {
+                val trimmed = triggerKeyword.trim()
+                if (!trimmed.startsWith(":")) ":$trimmed:" else trimmed
+            } else {
+                ""
+            }
+            val newMacro = MacroEntity(
+                name = name.trim().ifBlank { "Macro Personalizada" },
+                description = description.trim().ifBlank { "Plantilla creada por el usuario" },
+                triggerKeyword = cleanTrigger,
+                category = category.trim().ifBlank { "MIS MACROS" },
+                templateContent = templateContent,
+                isPredefined = false,
+                iconName = iconName
+            )
+            macroRepository.insertMacro(newMacro)
+            _userFeedbackMessage.value = "Macro «${newMacro.name}» guardada"
+        }
+    }
+
+    /**
+     * Elimina una macro personalizada (las macros predefinidas del sistema están protegidas).
+     */
+    fun deleteCustomMacro(macro: MacroEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!macro.isPredefined) {
+                macroRepository.deleteMacro(macro)
+                _userFeedbackMessage.value = "Macro «${macro.name}» eliminada"
+            } else {
+                _userFeedbackMessage.value = "Las macros predefinidas del sistema no pueden eliminarse"
+            }
+        }
+    }
+
+    /**
+     * Detecta y expande un disparador de macro inmediatamente anterior al cursor (ej. ":acta:").
+     */
+    fun checkAndExpandMacroTrigger(clipboardText: String = ""): Boolean {
+        val currentTfv = _editorTextFieldValue.value
+        val text = currentTfv.text
+        val cursor = currentTfv.selection.start.coerceIn(0, text.length)
+        val textBefore = text.substring(0, cursor)
+
+        val triggerMatch = MacroEngine.detectTriggerBeforeCursor(textBefore) ?: return false
+        val (trigger, length) = triggerMatch
+
+        val matchingMacro = allMacros.value.find { it.triggerKeyword.equals(trigger, ignoreCase = true) } ?: return false
+
+        val startOfTrigger = cursor - length
+        val activeDoc = _activeDocument.value
+        val currentContent = _editorContent.value
+        val context = MacroExecutionContext(
+            documentTitle = _editorTitle.value.ifBlank { activeDoc?.title ?: "Documento Sin Título" },
+            authorName = "Redactor DocuSheet",
+            pageFormat = activeDoc?.pageSize ?: "A4",
+            currentPage = 1,
+            totalPages = getEstimatedPages(currentContent),
+            totalWords = getWordCount(currentContent),
+            selectedText = "",
+            clipboardText = clipboardText
+        )
+
+        val expanded = MacroEngine.evaluateTemplate(matchingMacro.templateContent, context)
+        val newText = text.substring(0, startOfTrigger) + expanded + text.substring(cursor)
+        val newCursor = startOfTrigger + expanded.length
+
+        onContentChanged(newText)
+        _editorTextFieldValue.value = TextFieldValue(
+            text = newText,
+            selection = TextRange(newCursor)
+        )
+        _userFeedbackMessage.value = "Disparador «$trigger» expandido"
+        return true
     }
 }

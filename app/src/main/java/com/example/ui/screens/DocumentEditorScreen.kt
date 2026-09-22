@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.outlined.FormatIndentIncreas
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
@@ -60,6 +61,7 @@ import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.NoteAdd
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Subscript
 import androidx.compose.material.icons.outlined.Superscript
@@ -85,6 +87,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -129,7 +132,9 @@ import java.io.File
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.DocumentViewModel
+import com.example.ui.components.DocuSheetMacroBottomSheet
 import com.example.ui.components.DocuSheetPcSelectionBar
+import com.example.ui.components.DocuSheetSearchRadarBar
 import com.example.ui.components.PaperSheet
 import com.example.ui.components.TableInsertDialog
 import com.example.util.DocumentExporter
@@ -170,6 +175,22 @@ fun DocumentEditorScreen(
     val canRedo by viewModel.canRedo.collectAsStateWithLifecycle()
     val markedSwapBlock by viewModel.markedSwapBlock.collectAsStateWithLifecycle()
     val feedbackMessage by viewModel.userFeedbackMessage.collectAsStateWithLifecycle()
+
+    // Estados del Buscador Avanzado, Radar de Redundancia y Carrusel de Sinónimos
+    val isEditorSearchVisible by viewModel.isEditorSearchVisible.collectAsStateWithLifecycle()
+    val editorSearchQuery by viewModel.editorSearchQuery.collectAsStateWithLifecycle()
+    val editorReplaceQuery by viewModel.editorReplaceQuery.collectAsStateWithLifecycle()
+    val isReplaceBarExpanded by viewModel.isReplaceBarExpanded.collectAsStateWithLifecycle()
+    val editorSearchMatches by viewModel.editorSearchMatches.collectAsStateWithLifecycle()
+    val currentSearchMatchIndex by viewModel.currentSearchMatchIndex.collectAsStateWithLifecycle()
+    val currentStyleRadarReport by viewModel.currentStyleRadarReport.collectAsStateWithLifecycle()
+    val currentSynonyms by viewModel.currentSynonyms.collectAsStateWithLifecycle()
+    val isAnalyzingStyle by viewModel.isAnalyzingStyle.collectAsStateWithLifecycle()
+
+    val isMacroSheetVisible by viewModel.isMacroSheetVisible.collectAsStateWithLifecycle()
+    val allMacros by viewModel.allMacros.collectAsStateWithLifecycle()
+    val selectedMacroCategory by viewModel.selectedMacroCategory.collectAsStateWithLifecycle()
+    val macroSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -326,6 +347,24 @@ fun DocumentEditorScreen(
                         Icon(
                             imageVector = if (isReadOnly) Icons.Outlined.Edit else Icons.Outlined.Visibility,
                             contentDescription = if (isReadOnly) "Cambiar a modo edición" else "Cambiar a modo lectura"
+                        )
+                    }
+
+                    // Buscador avanzado de PC, Radar de Redundancia y Carrusel de Sinónimos
+                    IconButton(
+                        onClick = {
+                            if (isEditorSearchVisible) {
+                                viewModel.closeEditorSearch()
+                            } else {
+                                viewModel.openEditorSearch()
+                            }
+                        },
+                        modifier = Modifier.testTag("open_editor_search_radar_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = "Buscar y Radar de Redundancia",
+                            tint = if (isEditorSearchVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -906,6 +945,13 @@ fun DocumentEditorScreen(
                             onClick = { viewModel.insertCurrentDate() }
                         )
 
+                        // Macros y Automatizaciones
+                        QuickToolButton(
+                            icon = Icons.Outlined.AutoAwesome,
+                            label = "Macros",
+                            onClick = { viewModel.setMacroSheetVisible(true) }
+                        )
+
                         // Separador
                         QuickToolButton(
                             icon = Icons.Outlined.HorizontalRule,
@@ -946,8 +992,39 @@ fun DocumentEditorScreen(
                     if (oldText.isNotEmpty()) {
                         clipboardManager.setText(AnnotatedString(oldText))
                     }
+                },
+                onSearchAndSynonyms = { word ->
+                    viewModel.openEditorSearch(word)
                 }
             )
+
+            // --- Panel Flotante: Buscador Avanzado, Radar de Redundancia y Carrusel de Sinónimos Offline ---
+            AnimatedVisibility(
+                visible = isEditorSearchVisible,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                DocuSheetSearchRadarBar(
+                    searchQuery = editorSearchQuery,
+                    replaceQuery = editorReplaceQuery,
+                    matches = editorSearchMatches,
+                    currentIndex = currentSearchMatchIndex,
+                    report = currentStyleRadarReport,
+                    synonyms = currentSynonyms,
+                    isReplaceExpanded = isReplaceBarExpanded,
+                    isAnalyzing = isAnalyzingStyle,
+                    onSearchQueryChange = { viewModel.onEditorSearchQueryChanged(it) },
+                    onReplaceQueryChange = { viewModel.onEditorReplaceQueryChanged(it) },
+                    onNextMatch = { viewModel.goToNextMatch() },
+                    onPreviousMatch = { viewModel.goToPreviousMatch() },
+                    onToggleReplace = { viewModel.toggleReplaceBar() },
+                    onReplaceCurrent = { viewModel.replaceCurrentMatch() },
+                    onReplaceAll = { viewModel.replaceAllMatches() },
+                    onApplySynonym = { viewModel.applySynonymToCurrentMatch(it) },
+                    onClose = { viewModel.closeEditorSearch() },
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
 
             // --- Área de Trabajo tipo Escritorio donde reposa la Hoja ---
             Box(
@@ -1164,6 +1241,34 @@ fun DocumentEditorScreen(
                     style = style
                 )
                 showTableDialog = false
+            }
+        )
+    }
+
+    // Panel modal táctil de Macros y Automatizaciones
+    if (isMacroSheetVisible) {
+        DocuSheetMacroBottomSheet(
+            sheetState = macroSheetState,
+            macros = allMacros,
+            selectedCategory = selectedMacroCategory,
+            onCategorySelected = { viewModel.selectMacroCategory(it) },
+            onExecuteMacro = { macro, clip ->
+                viewModel.executeMacro(macro, clip)
+            },
+            onCreateMacro = { name, desc, trigger, cat, content ->
+                viewModel.createCustomMacro(
+                    name = name,
+                    description = desc,
+                    triggerKeyword = trigger,
+                    category = cat,
+                    templateContent = content
+                )
+            },
+            onDeleteMacro = { macro ->
+                viewModel.deleteCustomMacro(macro)
+            },
+            onDismiss = {
+                viewModel.setMacroSheetVisible(false)
             }
         )
     }

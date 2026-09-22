@@ -38,6 +38,7 @@ import androidx.compose.material.icons.outlined.FormatStrikethrough
 import androidx.compose.material.icons.outlined.FormatUnderlined
 import androidx.compose.material.icons.outlined.OpenWith
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material.icons.outlined.VerticalAlignBottom
@@ -148,6 +149,7 @@ fun DocuSheetPcSelectionBar(
     onMoveToStart: (() -> Unit)? = null,
     onMoveToEnd: (() -> Unit)? = null,
     onSwapWithClipboard: ((String) -> Unit)? = null,
+    onSearchAndSynonyms: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val selection = textFieldValue.selection
@@ -369,6 +371,26 @@ fun DocuSheetPcSelectionBar(
                             .width(1.dp)
                             .background(MaterialTheme.colorScheme.outlineVariant)
                     )
+
+                    // --- BUSCAR / SINÓNIMOS / RADAR DE ESTILO ---
+                    if (onSearchAndSynonyms != null && selectedText.isNotEmpty()) {
+                        SelectionBarButton(
+                            icon = Icons.Outlined.Search,
+                            label = "Sinónimos/Radar",
+                            testTag = "btn_pc_search_synonyms",
+                            onClick = {
+                                onSearchAndSynonyms(selectedText.trim())
+                            }
+                        )
+
+                        // Separador visual
+                        Box(
+                            modifier = Modifier
+                                .height(28.dp)
+                                .width(1.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant)
+                        )
+                    }
 
                     // ==========================================================
                     // --- 4. MODO INTERCAMBIAR (Swap / Transposición de PC) ---
