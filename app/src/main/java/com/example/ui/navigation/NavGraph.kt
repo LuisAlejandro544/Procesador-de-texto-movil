@@ -1,6 +1,8 @@
 package com.example.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -29,8 +31,26 @@ import android.net.Uri
 fun DocuSheetNavGraph(
     navController: NavHostController,
     viewModel: DocumentViewModel,
-    initialPdfUri: Uri? = null
+    initialPdfUri: Uri? = null,
+    initialImportUri: Uri? = null
 ) {
+    val context = LocalContext.current
+
+    LaunchedEffect(initialImportUri) {
+        if (initialImportUri != null) {
+            viewModel.importDocument(
+                context = context,
+                uri = initialImportUri,
+                onSuccess = { newId, _ ->
+                    navController.navigate("editor/$newId")
+                },
+                onError = {
+                    // Si falla la importación externa, permanece en la biblioteca
+                }
+            )
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = if (initialPdfUri != null) "pdf_viewer?uri=${Uri.encode(initialPdfUri.toString())}" else "documents"

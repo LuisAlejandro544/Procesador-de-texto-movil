@@ -27,11 +27,11 @@ object DocumentStatsCalculator {
     }
 
     /**
-     * Calcula la cantidad de páginas estimadas (aprox. 300 palabras por página estándar).
+     * Calcula la cantidad de páginas estimadas basadas en la partición geométrica de letras y bloques de hoja.
      */
-    fun getEstimatedPages(text: String): Int {
-        val words = getWordCount(text)
-        return maxOf(1, (words / 300) + (if (words % 300 > 0) 1 else 0))
+    fun getEstimatedPages(text: String, charsPerPage: Int = 1900): Int {
+        if (text.isBlank()) return 1
+        return com.example.ui.components.paper.PaperSheetPaginator.partitionIntoPages(text, charsPerPage).size
     }
 
     /**

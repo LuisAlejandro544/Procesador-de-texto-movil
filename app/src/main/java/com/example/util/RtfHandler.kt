@@ -89,8 +89,8 @@ object RtfHandler {
         sb.append("{\\rtf1\\ansi\\ansicpg1252\\deff0\\nouicompat\\deflang1034\n")
         // Tabla de fuentes
         sb.append("{\\fonttbl{\\f0\\fnil\\fcharset0 Calibri;}{\\f1\\froman\\fcharset0 Times New Roman;}{\\f2\\fmodern\\fcharset0 Courier New;}}\n")
-        // Tabla de colores
-        sb.append("{\\colortbl ;\\red15\\green23\\blue42;\\red30\\green58\\blue138;\\red71\\green85\\blue105;\\red5\\green150\\blue105;\\red185\\green28\\blue28;}\n")
+        // Tabla de colores (cf1: pizarra, cf2: azul marino, cf3: gris medio, cf4: esmeralda, cf5: rojo, cf6: naranja 3D)
+        sb.append("{\\colortbl ;\\red15\\green23\\blue42;\\red30\\green58\\blue138;\\red71\\green85\\blue105;\\red5\\green150\\blue105;\\red185\\green28\\blue28;\\red234\\green88\\blue12;}\n")
         sb.append("\\viewkind4\\uc1\n")
         sb.append("\\pard\\sa200\\sl276\\slmult1\\f0\\fs24\\lang1034\n")
 
@@ -258,13 +258,32 @@ object RtfHandler {
     }
 
     private fun formatRtfInline(text: String): String {
+        // Soporte de texto 3D con relieve y sombra nativa RTF
+        val threeDRegex = Regex("""\[3d(?::([^,\]]+))?(?:,([^\]]+))?\](.*?)\[/3d\]""", RegexOption.IGNORE_CASE)
+        if (threeDRegex.containsMatchIn(text)) {
+            val sb = StringBuilder()
+            var lastIdx = 0
+            for (m in threeDRegex.findAll(text)) {
+                if (m.range.first > lastIdx) {
+                    val pre = text.substring(lastIdx, m.range.first)
+                    sb.append(formatRtfInline(pre))
+                }
+                val innerText = m.groupValues[3]
+                sb.append("{\\b\\shad\\cf6 ").append(escapeRtf(innerText)).append("}")
+                lastIdx = m.range.last + 1
+            }
+            if (lastIdx < text.length) {
+                val post = text.substring(lastIdx)
+                sb.append(formatRtfInline(post))
+            }
+            return sb.toString()
+        }
+
         var clean = text
         // Limpiar etiquetas de directivas complejas
         clean = clean
             .replace(Regex("\\[color:#[0-9A-Fa-f]{6}\\]"), "")
             .replace("[/color]", "")
-            .replace(Regex("\\[3d:[^]]*\\]"), "")
-            .replace("[/3d]", "")
             .replace(Regex("\\[weight:[^]]*\\]"), "")
             .replace("[/weight]", "")
             .replace(Regex("\\[font:[^]]*\\]"), "")

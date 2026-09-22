@@ -408,11 +408,30 @@ object DocxHandler {
         defaultColor: String? = null
     ): String {
         val runs = StringBuilder()
-        
-        // Limpiamos etiquetas de directiva especiales para que el texto sea legible
+
+        // Verificamos si contiene fragmentos 3D para segmentarlos con relieve y sombra nativa de Word
+        val threeDRegex = Regex("""\[3d(?::([^,\]]+))?(?:,([^\]]+))?\](.*?)\[/3d\]""", RegexOption.IGNORE_CASE)
+        if (threeDRegex.containsMatchIn(text)) {
+            var lastIdx = 0
+            for (m in threeDRegex.findAll(text)) {
+                if (m.range.first > lastIdx) {
+                    val pre = text.substring(lastIdx, m.range.first)
+                    runs.append(parseFormattedRuns(pre, defaultBold, defaultItalic, defaultUnderline, defaultStrikethrough, defaultColor))
+                }
+                val frontParam = m.groupValues[2].trim().ifBlank { m.groupValues[1].trim() }.removePrefix("#")
+                val frontVal = if (frontParam.matches(Regex("[0-9A-Fa-f]{6}"))) frontParam else "EA580C"
+                val innerText = m.groupValues[3]
+                runs.append("<w:r><w:rPr><w:b/><w:shadow/><w:color w:val=\"$frontVal\"/></w:rPr><w:t xml:space=\"preserve\">${escapeXml(innerText)}</w:t></w:r>")
+                lastIdx = m.range.last + 1
+            }
+            if (lastIdx < text.length) {
+                val post = text.substring(lastIdx)
+                runs.append(parseFormattedRuns(post, defaultBold, defaultItalic, defaultUnderline, defaultStrikethrough, defaultColor))
+            }
+            return runs.toString()
+        }
+
         var clean = text
-        // Reemplazo simple de formato básico
-        // Si no tiene marcas complejas, emitimos un solo <w:r>
         val hasBold = defaultBold || clean.contains("**")
         val hasItalic = defaultItalic || clean.contains("*")
         val hasUnderline = defaultUnderline || clean.contains("<u>") || clean.contains("__")
@@ -426,10 +445,8 @@ object DocxHandler {
             clean = clean.replace(Regex("\\[color:#[0-9A-Fa-f]{6}\\]"), "").replace("[/color]", "")
         }
 
-        // Limpiar directivas restantes de 3D, weight, etc.
+        // Limpiar directivas restantes de weight, font, etc.
         clean = clean
-            .replace(Regex("\\[3d:[^]]*\\]"), "")
-            .replace("[/3d]", "")
             .replace(Regex("\\[weight:[^]]*\\]"), "")
             .replace("[/weight]", "")
             .replace(Regex("\\[font:[^]]*\\]"), "")

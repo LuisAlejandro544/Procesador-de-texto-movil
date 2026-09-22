@@ -17,6 +17,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
+import android.text.style.ReplacementSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import android.text.style.SubscriptSpan
@@ -1135,8 +1136,86 @@ object DocumentExporter {
     }
 
     /**
+     * Span vectorial especializado para renderizar texto 3D con relieve, biselado y sombra estereoscópica
+     * en el Canvas vectorial del PdfDocument de Android sin distorsiones ni pérdida de resolución.
+     */
+    private class ThreeDWordSpan(
+        val shadowColor: Int,
+        val bevelColor: Int,
+        val frontColor: Int
+    ) : ReplacementSpan() {
+        override fun getSize(
+            paint: Paint,
+            text: CharSequence,
+            start: Int,
+            end: Int,
+            fm: Paint.FontMetricsInt?
+        ): Int {
+            val tp = TextPaint(paint).apply {
+                typeface = Typeface.create(paint.typeface, Typeface.BOLD)
+            }
+            if (fm != null) {
+                val pFm = tp.fontMetricsInt
+                fm.ascent = pFm.ascent
+                fm.descent = pFm.descent
+                fm.top = pFm.top
+                fm.bottom = pFm.bottom
+            }
+            return tp.measureText(text, start, end).toInt()
+        }
+
+        override fun draw(
+            canvas: Canvas,
+            text: CharSequence,
+            start: Int,
+            end: Int,
+            x: Float,
+            top: Int,
+            y: Int,
+            bottom: Int,
+            paint: Paint
+        ) {
+            val tp = TextPaint(paint).apply {
+                typeface = Typeface.create(paint.typeface, Typeface.BOLD)
+                isAntiAlias = true
+            }
+
+            // 1. Capa de sombra 3D profunda
+            tp.color = shadowColor
+            canvas.drawText(text, start, end, x + 2.0f, y.toFloat() + 2.0f, tp)
+
+            // 2. Capa intermedia de extrusión / bisel 3D
+            tp.color = bevelColor
+            canvas.drawText(text, start, end, x + 1.0f, y.toFloat() + 1.0f, tp)
+
+            // 3. Capa frontal nítida de relieve
+            tp.color = frontColor
+            canvas.drawText(text, start, end, x, y.toFloat(), tp)
+        }
+    }
+
+    private fun blendColors(c1: Int, c2: Int, ratio: Float = 0.5f): Int {
+        val inverse = 1f - ratio
+        val r = (Color.red(c1) * inverse + Color.red(c2) * ratio).toInt().coerceIn(0, 255)
+        val g = (Color.green(c1) * inverse + Color.green(c2) * ratio).toInt().coerceIn(0, 255)
+        val b = (Color.blue(c1) * inverse + Color.blue(c2) * ratio).toInt().coerceIn(0, 255)
+        return Color.rgb(r, g, b)
+    }
+
+    private fun parseHexColorSafe(hex: String, fallback: Int): Int {
+        return try {
+            val clean = hex.trim()
+            if (clean.isEmpty()) return fallback
+            val formatted = if (clean.startsWith("#")) clean else "#$clean"
+            Color.parseColor(formatted)
+        } catch (_: Exception) {
+            fallback
+        }
+    }
+
+    /**
      * Parsea etiquetas Markdown y directivas inline a un SpannableStringBuilder con estilos reales
-     * (negrita, cursiva, subrayado, tachado, subíndice, superíndice y colores).
+     * (negrita, cursiva, subrayado, tachado, subíndice, superíndice, colores y efectos 3D vectoriales).
      */
     private fun parseInlineFormattingToSpanned(text: String): CharSequence {
         val ssb = SpannableStringBuilder()
@@ -1160,8 +1239,8 @@ object DocumentExporter {
         val subRegex = Regex("""<sub>(.*?)</sub>""")
         // 8. Grosor tipográfico: [weight:valor]texto[/weight]
         val weightRegex = Regex("""\[weight:([a-zA-Z0-9]+)\](.*?)\[/weight\]""")
-        // 9. Color y efecto 3D: [3d:params]texto[/3d]
-        val effect3dRegex = Regex("""\[3d:([^\]]+)\](.*?)\[/3d\]""")
+        // 9. Color y efecto 3D: [3d:params]texto[/3d] o [3d]texto[/3d]
+        val effect3dRegex = Regex("""\[3d(?::([^\]]+))?\](.*?)\[/3d\]""", RegexOption.IGNORE_CASE)
 
         data class SpanInstruction(val start: Int, val end: Int, val span: Any)
         val instructions = mutableListOf<SpanInstruction>()
@@ -1221,20 +1300,50 @@ object DocumentExporter {
             }
         }
 
-        // Registrar color y estilos 3D
-        stripAndRecord(effect3dRegex) { params ->
-            var frontColor = Color.rgb(37, 99, 235)
-            val parts = params.split(",")
-            for (part in parts) {
-                val kv = part.split("=")
-                if (kv.size == 2 && kv[0].trim().lowercase() == "front") {
-                    try {
-                        val hex = kv[1].trim()
-                        frontColor = Color.parseColor(if (hex.startsWith("#")) hex else "#$hex")
-                    } catch (_: Exception) {}
+        // Registrar color y estilos 3D vectoriales con relieve y sombra profunda
+        var match3d = effect3dRegex.find(workingText)
+        while (match3d != null) {
+            val params = match3d.groupValues[1].trim()
+            val innerText = match3d.groupValues[2]
+            val start = match3d.range.first
+
+            // Deducir shadowColor y frontColor
+            var shadowColor = Color.rgb(15, 23, 42) // Carbón profundo
+            var frontColor = Color.rgb(234, 88, 12) // Naranja brillante / contraste vivo
+
+            if (params.isNotEmpty()) {
+                val parts = params.split(",")
+                if (parts.size >= 2) {
+                    shadowColor = parseHexColorSafe(parts[0], shadowColor)
+                    frontColor = parseHexColorSafe(parts[1], frontColor)
+                } else if (parts.size == 1) {
+                    val p = parts[0]
+                    if (p.contains("front=", ignoreCase = true)) {
+                        frontColor = parseHexColorSafe(p.substringAfter("="), frontColor)
+                    } else if (p.contains("shadow=", ignoreCase = true)) {
+                        shadowColor = parseHexColorSafe(p.substringAfter("="), shadowColor)
+                    } else {
+                        shadowColor = parseHexColorSafe(p, shadowColor)
+                    }
                 }
             }
-            ForegroundColorSpan(frontColor)
+
+            val bevelColor = blendColors(shadowColor, frontColor, 0.45f)
+
+            workingText = workingText.replaceRange(match3d.range, innerText)
+
+            // Aplicar 3D por token/palabra para permitir saltos de línea fluidos en el StaticLayout de PDF
+            val tokens = innerText.split(Regex("(?<=\\s)|(?=\\s)"))
+            var currentOffset = start
+            for (token in tokens) {
+                val tokenEnd = currentOffset + token.length
+                if (token.isNotBlank()) {
+                    instructions.add(SpanInstruction(currentOffset, tokenEnd, ThreeDWordSpan(shadowColor, bevelColor, frontColor)))
+                }
+                currentOffset = tokenEnd
+            }
+
+            match3d = effect3dRegex.find(workingText)
         }
 
         ssb.append(workingText)
@@ -1721,6 +1830,53 @@ object DocumentExporter {
             .replace("'", "&#39;")
     }
 
+    private fun formatHtmlInline(text: String): String {
+        var clean = escapeHtml(text)
+
+        // 1. Efecto 3D con relieve y sombra CSS
+        val effect3dRegex = Regex("""\[3d(?::([^,\]]+))?(?:,([^\]]+))?\](.*?)\[/3d\]""", RegexOption.IGNORE_CASE)
+        clean = effect3dRegex.replace(clean) { m ->
+            val shadow = m.groupValues[1].trim().ifBlank { "#0F172A" }
+            val front = m.groupValues[2].trim().ifBlank { "#EA580C" }
+            val inner = m.groupValues[3]
+            """<span class="text-3d" style="color: $front; font-weight: bold; text-shadow: 1px 1px 0px $shadow, 2px 2px 0px $shadow, 3px 3px 2px rgba(0,0,0,0.45);">${formatHtmlInline(inner)}</span>"""
+        }
+
+        // 2. Colores personalizados
+        val colorRegex = Regex("""\[color:(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8})\](.*?)\[/color\]""", RegexOption.IGNORE_CASE)
+        clean = colorRegex.replace(clean) { m ->
+            val hex = m.groupValues[1]
+            val inner = m.groupValues[2]
+            """<span style="color: $hex;">${formatHtmlInline(inner)}</span>"""
+        }
+
+        // 3. Grosor tipográfico
+        val weightRegex = Regex("""\[weight:([a-zA-Z0-9]+)\](.*?)\[/weight\]""", RegexOption.IGNORE_CASE)
+        clean = weightRegex.replace(clean) { m ->
+            val weight = when (m.groupValues[1].lowercase()) {
+                "light", "thin" -> "300"
+                "medium" -> "500"
+                "semibold" -> "600"
+                "bold" -> "700"
+                "black" -> "900"
+                else -> "bold"
+            }
+            val inner = m.groupValues[2]
+            """<span style="font-weight: $weight;">${formatHtmlInline(inner)}</span>"""
+        }
+
+        // 4. Formato estándar Markdown
+        clean = clean.replace(Regex("""\*\*(.*?)\*\*""")) { "<strong>${it.groupValues[1]}</strong>" }
+        clean = clean.replace(Regex("""\*(.*?)\*""")) { "<em>${it.groupValues[1]}</em>" }
+        clean = clean.replace(Regex("""&lt;u&gt;(.*?)&lt;/u&gt;""")) { "<u>${it.groupValues[1]}</u>" }
+        clean = clean.replace(Regex("""<u>(.*?)</u>""")) { "<u>${it.groupValues[1]}</u>" }
+        clean = clean.replace(Regex("""~~(.*?)~~""")) { "<del>${it.groupValues[1]}</del>" }
+        clean = clean.replace(Regex("""&lt;sup&gt;(.*?)&lt;/sup&gt;""")) { "<sup>${it.groupValues[1]}</sup>" }
+        clean = clean.replace(Regex("""&lt;sub&gt;(.*?)&lt;/sub&gt;""")) { "<sub>${it.groupValues[1]}</sub>" }
+
+        return clean
+    }
+
     private fun convertContentToHtmlBody(rawContent: String): String {
         val lines = rawContent.lines()
         val sb = StringBuilder()
@@ -1740,16 +1896,16 @@ object DocumentExporter {
 
             if (trimmed.startsWith("# ")) {
                 if (inList) { sb.append("</$listType>\n"); inList = false }
-                sb.append("<h1>").append(escapeHtml(trimmed.removePrefix("# "))).append("</h1>\n")
+                sb.append("<h1>").append(formatHtmlInline(trimmed.removePrefix("# "))).append("</h1>\n")
             } else if (trimmed.startsWith("## ")) {
                 if (inList) { sb.append("</$listType>\n"); inList = false }
-                sb.append("<h2>").append(escapeHtml(trimmed.removePrefix("## "))).append("</h2>\n")
+                sb.append("<h2>").append(formatHtmlInline(trimmed.removePrefix("## "))).append("</h2>\n")
             } else if (trimmed.startsWith("### ")) {
                 if (inList) { sb.append("</$listType>\n"); inList = false }
-                sb.append("<h3>").append(escapeHtml(trimmed.removePrefix("### "))).append("</h3>\n")
+                sb.append("<h3>").append(formatHtmlInline(trimmed.removePrefix("### "))).append("</h3>\n")
             } else if (trimmed.startsWith("> ")) {
                 if (inList) { sb.append("</$listType>\n"); inList = false }
-                sb.append("<blockquote>").append(escapeHtml(trimmed.removePrefix("> "))).append("</blockquote>\n")
+                sb.append("<blockquote>").append(formatHtmlInline(trimmed.removePrefix("> "))).append("</blockquote>\n")
             } else if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
                 if (!inList || listType != "ul") {
                     if (inList) sb.append("</$listType>\n")
@@ -1758,7 +1914,7 @@ object DocumentExporter {
                     listType = "ul"
                 }
                 val itemContent = trimmed.removePrefix("- ").removePrefix("• ")
-                sb.append("  <li>").append(escapeHtml(itemContent)).append("</li>\n")
+                sb.append("  <li>").append(formatHtmlInline(itemContent)).append("</li>\n")
             } else if (trimmed.matches(Regex("^\\d+\\.\\s.*"))) {
                 if (!inList || listType != "ol") {
                     if (inList) sb.append("</$listType>\n")
@@ -1767,7 +1923,7 @@ object DocumentExporter {
                     listType = "ol"
                 }
                 val itemContent = trimmed.replaceFirst(Regex("^\\d+\\.\\s*"), "")
-                sb.append("  <li>").append(escapeHtml(itemContent)).append("</li>\n")
+                sb.append("  <li>").append(formatHtmlInline(itemContent)).append("</li>\n")
             } else if (trimmed.isEmpty()) {
                 if (inList) {
                     sb.append("</$listType>\n")
@@ -1779,7 +1935,7 @@ object DocumentExporter {
                     sb.append("</$listType>\n")
                     inList = false
                 }
-                sb.append("<p>").append(escapeHtml(trimmed)).append("</p>\n")
+                sb.append("<p>").append(formatHtmlInline(trimmed)).append("</p>\n")
             }
         }
         if (inList) {

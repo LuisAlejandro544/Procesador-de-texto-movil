@@ -156,8 +156,11 @@ fun PaperSheet(
 
     if (isCascadeMode) {
         // --- Modo Cascada Continua (Múltiples Hojas de Papel) ---
-        val pageSlices = remember(content, wordsPerPageLimit) {
-            PaperSheetPaginator.calculatePageSlices(content, wordsPerPageLimit)
+        val effectiveCharsLimit = remember(pageSize) {
+            com.example.util.PageFormat.fromId(pageSize).defaultCharsLimit
+        }
+        val pageSlices = remember(content, effectiveCharsLimit) {
+            PaperSheetPaginator.calculatePageSlices(content, effectiveCharsLimit)
         }
         val totalPages = pageSlices.size
 
@@ -523,8 +526,10 @@ private fun SingleSheetCard(
                 modifier = Modifier.align(Alignment.BottomStart)
             )
 
-            val pageWords = remember(pageText) { countWords(pageText) }
-            val isOverLimit = pageWords >= wordsPerPageLimit
+            val pageChars = remember(pageText) { PaperSheetPaginator.countChars(pageText) }
+            val pageEffectiveLoad = remember(pageText) { PaperSheetPaginator.calculateEffectiveCharLoad(pageText) }
+            val effectiveCharsLimit = remember(pageSize) { com.example.util.PageFormat.fromId(pageSize).defaultCharsLimit }
+            val isOverLimit = pageEffectiveLoad >= effectiveCharsLimit
 
             Column(
                 modifier = Modifier.align(Alignment.Center),
@@ -540,7 +545,7 @@ private fun SingleSheetCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "$pageWords / $wordsPerPageLimit palabras ($pageSize)",
+                    text = "$pageChars / $effectiveCharsLimit letras ($pageSize)",
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 9.5.sp,
                         fontWeight = if (isOverLimit) FontWeight.Bold else FontWeight.Normal,
